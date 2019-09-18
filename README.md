@@ -1,10 +1,21 @@
 # Sokoban game
 
+The goal is to build flexible testable model of the game, and make IO layer as thin as possible.
+
+Also the game should implement advanced move-ability control with reachability test, and such algorithms
+are usually hard to implement in Haskell, but in this project it is achieved nevertheless, see
+[`Solver.hs`](src/Sokoban/Solver.hs) module.
+
+![](docs/demo.mp4)
+
+### Installation and run
+                        
+You need to have [Stack](https://docs.haskellstack.org/en/stable/) installed.
+
 ```
 stack build
 stack exec sokoban
 ```
-The aim is to build flexible testable model of the game, and make IO layer as thin as possible.
 
 ### Requests for the improvement. 
 
