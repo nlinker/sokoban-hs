@@ -26,13 +26,14 @@ tests:
       - hspec
 
 dependencies:
-  - Cabal
-  - base
-  - bytestring
-  - extra
-  - MonadRandom
-  - mtl
-  - template-haskell
-  - text
-  - unordered-containers
-  - word8
+    - ansi-terminal
+    - Cabal
+    - base
+    - bytestring
+    - extra
+    - MonadRandom
+    - mtl
+    - template-haskell
+    - text
+    - unordered-containers
+    - word8
