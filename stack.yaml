@@ -1,21 +1,7 @@
-resolver: lts-8.23
+resolver: lts-14.5
+
 packages:
 - '.'
-
-# TODO did this in package.yaml, but was no effect
-# TODO but without it I see this
-# Invalid flag specification:
-#  - Package 'sokoban' does not define the following flags (specified in stack.yaml):
-#    TESTING
-#  - Flags defined by package 'sokoban':
-#flags:
-#  TESTING:
-#    default: true
-#    manual: true
-
-#flags:
-#  sokoban:
-#    TESTING: true
 
 extra-deps:
   - cabal-info-0.1.0.0

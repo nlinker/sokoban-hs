@@ -26,17 +26,13 @@ tests:
       - hspec
 
 dependencies:
+  - Cabal
   - base
   - bytestring
-  - contravariant
-  - free
-  - hashable
-  - hashmap
+  - extra
   - MonadRandom
   - mtl
   - template-haskell
   - text
-  - transformers
-  - vector
-  - deepseq
-  - array
+  - unordered-containers
+  - word8
