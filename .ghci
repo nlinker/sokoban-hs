@@ -1,0 +1,10 @@
+:set -itest -isrc
+:set prompt "\ESC[0;34mλ> \ESC[m"
+:set prompt2 "\ESC[0;34mε> \ESC[m"
+
+:set -XOverloadedStrings
+:set -XFlexibleContexts
+:set -fno-warn-type-defaults
+
+:def rr (\a -> return $ unlines [":r", a])
+

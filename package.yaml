@@ -1,0 +1,42 @@
+name: sokoban
+version: 0.1.0
+ghc-options: -threaded -Wall -fno-warn-name-shadowing
+
+executables:
+  sokoban:
+    main: Main.hs
+    source-dirs:
+      - app
+    dependencies:
+      - sokoban
+
+library:
+  source-dirs:
+    - src
+  other-modules:
+    - Paths_sokoban
+
+tests:
+  unit:
+    main: UnitTests.hs
+    source-dirs:
+      - test
+    dependencies:
+      - sokoban
+      - hspec
+
+dependencies:
+  - base
+  - bytestring
+  - contravariant
+  - free
+  - hashable
+  - hashmap
+  - MonadRandom
+  - mtl
+  - template-haskell
+  - text
+  - transformers
+  - vector
+  - deepseq
+  - array
