@@ -9,6 +9,7 @@
 
 module Sokoban where
 
+import Control.Monad          (forM_, when)
 import Control.Monad.Identity (runIdentity)
 import Data.Char              (isSpace)
 import Data.Hashable          (Hashable)
@@ -73,26 +74,56 @@ data GameState =
     }
   deriving (Eq, Show)
 
-colorStrLn :: ColorIntensity -> Color -> ColorIntensity -> Color -> String -> IO ()
-colorStrLn fgi fg bgi bg str = do
-  setSGR [SetColor Foreground fgi fg, SetColor Background bgi bg]
-  putStr str
-  setSGR []
-  putStrLn ""
-
 render :: GameState -> IO ()
-render _gs = do
-  colorStrLn Vivid White Vivid Red "This is red on white."
-  colorStrLn Vivid White Dull Blue "This is white on blue."
-  colorStrLn Vivid Green Dull Black "This is green on black."
-  colorStrLn Vivid Yellow Dull Black "This is yellow on black."
-  colorStrLn Dull Black Vivid Blue "This is black on light blue."
+render gs = do
+  let cs = cells (gs :: GameState)
+  let m = height (gs :: GameState)
+  let n = width (gs :: GameState)
+  let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
+  forM_ points $ \p -> do
+    let (char, color) =
+          case M.lookup p cs of
+            Just c  -> renderCell c
+            Nothing -> error "Should be impossible"
+    let Point _ j = p
+    colorStr color $
+      if j /= 0
+        then " " ++ [char]
+        else [char]
+    when (j == n - 1) $ putStrLn ""
+  where
+    colorStr :: Color -> String -> IO ()
+    colorStr color str = do
+      setSGR [SetColor Foreground Vivid color, SetColor Background Dull Black]
+      putStr str
+      setSGR []
+      putStr ""
+    renderCell :: Cell -> (Char, Color)
+    renderCell c =
+      case c of
+        (Worker d) ->
+          case d of
+            U -> ('▲', White)
+            D -> ('▼', White)
+            L -> ('◀', White)
+            R -> ('▶', White)
+        (WorkerOnHole d) ->
+          case d of
+            U -> ('▲', Cyan)
+            D -> ('▼', Cyan)
+            L -> ('◀', Cyan)
+            R -> ('▶', Cyan)
+        Wall -> ('▮', Yellow)
+        Empty -> (' ', White)
+        Hole -> ('⨯', Blue)
+        Box -> ('⊡', Red)
+        BoxOnHole -> ('⊠', Magenta)
 
 initial :: Level -> Maybe GameState
 initial level = do
-  let h = height (level :: Level)
-  let w = width (level :: Level)
-  let points = [Point (i - 1) (j - 1) | i <- [1 .. h], j <- [1 .. w]]
+  let m = height (level :: Level)
+  let n = width (level :: Level)
+  let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
   let zippedCells = zip points $ concat $ cells (level :: Level)
     -- now extract worker, boxes and holes
     -- worker must exist, and should be 1
@@ -102,21 +133,18 @@ initial level = do
   let holes = filter (isHole . snd) zippedCells
   if length workers /= 1 || length boxes /= length holes
     then Nothing
-    else do
-      let worker = fst $ head workers
-      let zippedCells2 = map (\(p, c) -> (p, toEmpty c)) zippedCells
-      return $
-        GameState
-          { cells = M.fromList zippedCells2
-          , height = h
-          , width = w
-          , name = name (level :: Level)
-          , worker = worker
-          , workerDrc = D
-          , boxes = S.fromList $ map fst boxes
-          , holes = S.fromList $ map fst holes
-          , isComplete = False
-          }
+    else return $
+         GameState
+           { cells = M.fromList zippedCells
+           , height = m
+           , width = n
+           , name = name (level :: Level)
+           , worker = fst $ head workers
+           , workerDrc = D
+           , boxes = S.fromList $ map fst boxes
+           , holes = S.fromList $ map fst holes
+           , isComplete = False
+           }
   where
     isWorker c =
       case c of
@@ -133,13 +161,6 @@ initial level = do
         Hole      -> True
         BoxOnHole -> True
         _         -> False
-    toEmpty c =
-      case c of
-        Worker _       -> Empty
-        WorkerOnHole _ -> Empty
-        Box            -> Empty
-        BoxOnHole      -> Empty
-        cell           -> cell
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
