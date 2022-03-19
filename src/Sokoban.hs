@@ -7,6 +7,7 @@
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
+
 module Sokoban where
 
 import Control.Monad.Identity (runIdentity)
@@ -22,6 +23,7 @@ import System.Console.ANSI    (Color(..), ColorIntensity(..), ConsoleLayer(..), 
 import qualified Data.ByteString       as B (ByteString)
 import qualified Data.ByteString.Char8 as B (all, lines, unpack)
 import qualified Data.HashMap.Strict   as M
+import qualified Data.HashSet          as S
 import qualified Data.Text             as T
 import           GHC.Generics          (Generic)
 
@@ -66,9 +68,11 @@ data GameState =
     , name       :: T.Text
     , worker     :: Point
     , workerDrc  :: Direction
-    , blocks     :: [Point]
+    , boxes      :: S.HashSet Point
+    , holes      :: S.HashSet Point
     , isComplete :: Bool
     }
+  deriving (Eq, Show)
 
 colorStrLn :: ColorIntensity -> Color -> ColorIntensity -> Color -> String -> IO ()
 colorStrLn fgi fg bgi bg str = do
@@ -85,47 +89,72 @@ testColor = do
   colorStrLn Vivid Yellow Dull Black "This is yellow on black."
   colorStrLn Dull Black Vivid Blue "This is black on light blue."
 
-initial :: Level -> GameState
-initial level = gameState
-  where
-    worker = undefined
-    gameState =
-      GameState
-        { cells = cellsConvert --  $ cells (level :: Level)
-        , height = height (level :: Level)
-        , width = width (level :: Level)
-        , name = name (level :: Level)
-        , worker = worker
-        , workerDrc = U
-        , blocks = []
-        , isComplete = False
-        }
-
-cellsConvert :: M.HashMap Point Cell
-cellsConvert =
-  runIdentity $ do
-    let level = fromJust $ parseLevel rawLevel
+initial :: Level -> Maybe GameState
+initial level = do
     let h = height (level :: Level)
     let w = width (level :: Level)
-    let cs = concat $ cells (level :: Level)
     let points = [Point (i - 1) (j - 1) | i <- [1 .. h], j <- [1 .. w]]
-    return $ M.fromList $ zip points cs
+    let zippedCells = zip points $ concat $ cells (level :: Level)
+    -- now extract worker, boxes and holes
+    -- worker must exist, and should be 1 
+    -- the number of boxes should be the number of holes 
+    let workers = filter (isWorker . snd) zippedCells
+    let boxes = filter (isBox . snd) zippedCells
+    let holes = filter (isHole . snd) zippedCells
+    if length workers /= 1 || length boxes /= length holes then Nothing else do
+      let worker = fst $ head workers
+      let zippedCells2 = map (\(p, c) -> (p, toEmpty c)) zippedCells
+      return $ 
+            GameState
+              { cells = M.fromList zippedCells2
+              , height = h
+              , width = w
+              , name = name (level :: Level)
+              , worker = worker
+              , workerDrc = D
+              , boxes = S.fromList $ map fst boxes
+              , holes = S.fromList $ map fst holes
+              , isComplete = False
+              }
   where
-    _findCoords = undefined
+    isWorker c =
+      case c of
+        (Worker _)       -> True
+        (WorkerOnHole _) -> True
+        _                -> False
+    isBox c =
+      case c of
+        Box       -> True
+        BoxOnHole -> True
+        _         -> False
+    isHole c =
+      case c of
+        Hole      -> True
+        BoxOnHole -> True
+        _         -> False
+    toEmpty c =
+      case c of
+        Worker _       -> Empty
+        WorkerOnHole _ -> Empty
+        Box            -> Empty
+        BoxOnHole      -> Empty
+        cell           -> cell
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
 delta :: Direction -> Point
-delta U = Point 0 (-1)
-delta D = Point 0 1
-delta L = Point (-1) 0
-delta R = Point 1 0
+delta d =
+  case d of
+    U -> Point 0 (-1)
+    D -> Point 0 1
+    L -> Point (-1) 0
+    R -> Point 1 0
 
 parseCell :: Char -> Maybe Cell
 parseCell c =
   case c of
-    '@' -> Just (Worker U)
-    '+' -> Just (WorkerOnHole U)
+    '@' -> Just (Worker D)
+    '+' -> Just (WorkerOnHole D)
     '#' -> Just Wall
     ' ' -> Just Empty
     '.' -> Just Hole
