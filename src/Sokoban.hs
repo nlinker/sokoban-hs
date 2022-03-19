@@ -7,7 +7,6 @@
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-
 module Sokoban where
 
 import Control.Monad.Identity (runIdentity)
@@ -53,24 +52,24 @@ data Cell
 
 data Level =
   Level
-    { cells  :: [[Cell]]
-    , height :: Int
-    , width  :: Int
-    , name   :: T.Text
+    { cells  :: ![[Cell]]
+    , height :: !Int
+    , width  :: !Int
+    , name   :: !T.Text
     }
   deriving (Eq, Show)
 
 data GameState =
   GameState
     { cells      :: M.HashMap Point Cell
-    , height     :: Int
-    , width      :: Int
-    , name       :: T.Text
-    , worker     :: Point
-    , workerDrc  :: Direction
+    , height     :: !Int
+    , width      :: !Int
+    , name       :: !T.Text
+    , worker     :: !Point
+    , workerDrc  :: !Direction
     , boxes      :: S.HashSet Point
     , holes      :: S.HashSet Point
-    , isComplete :: Bool
+    , isComplete :: !Bool
     }
   deriving (Eq, Show)
 
@@ -81,8 +80,8 @@ colorStrLn fgi fg bgi bg str = do
   setSGR []
   putStrLn ""
 
-testColor :: IO ()
-testColor = do
+render :: GameState -> IO ()
+render _gs = do
   colorStrLn Vivid White Vivid Red "This is red on white."
   colorStrLn Vivid White Dull Blue "This is white on blue."
   colorStrLn Vivid Green Dull Black "This is green on black."
@@ -91,31 +90,33 @@ testColor = do
 
 initial :: Level -> Maybe GameState
 initial level = do
-    let h = height (level :: Level)
-    let w = width (level :: Level)
-    let points = [Point (i - 1) (j - 1) | i <- [1 .. h], j <- [1 .. w]]
-    let zippedCells = zip points $ concat $ cells (level :: Level)
+  let h = height (level :: Level)
+  let w = width (level :: Level)
+  let points = [Point (i - 1) (j - 1) | i <- [1 .. h], j <- [1 .. w]]
+  let zippedCells = zip points $ concat $ cells (level :: Level)
     -- now extract worker, boxes and holes
-    -- worker must exist, and should be 1 
-    -- the number of boxes should be the number of holes 
-    let workers = filter (isWorker . snd) zippedCells
-    let boxes = filter (isBox . snd) zippedCells
-    let holes = filter (isHole . snd) zippedCells
-    if length workers /= 1 || length boxes /= length holes then Nothing else do
+    -- worker must exist, and should be 1
+    -- the number of boxes should be the number of holes
+  let workers = filter (isWorker . snd) zippedCells
+  let boxes = filter (isBox . snd) zippedCells
+  let holes = filter (isHole . snd) zippedCells
+  if length workers /= 1 || length boxes /= length holes
+    then Nothing
+    else do
       let worker = fst $ head workers
       let zippedCells2 = map (\(p, c) -> (p, toEmpty c)) zippedCells
-      return $ 
-            GameState
-              { cells = M.fromList zippedCells2
-              , height = h
-              , width = w
-              , name = name (level :: Level)
-              , worker = worker
-              , workerDrc = D
-              , boxes = S.fromList $ map fst boxes
-              , holes = S.fromList $ map fst holes
-              , isComplete = False
-              }
+      return $
+        GameState
+          { cells = M.fromList zippedCells2
+          , height = h
+          , width = w
+          , name = name (level :: Level)
+          , worker = worker
+          , workerDrc = D
+          , boxes = S.fromList $ map fst boxes
+          , holes = S.fromList $ map fst holes
+          , isComplete = False
+          }
   where
     isWorker c =
       case c of
