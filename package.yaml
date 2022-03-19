@@ -27,10 +27,11 @@ tests:
 
 dependencies:
     - ansi-terminal
-    - Cabal
     - base
     - bytestring
+    - Cabal
     - extra
+    - hashable
     - MonadRandom
     - mtl
     - template-haskell

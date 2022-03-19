@@ -1,16 +1,20 @@
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 module Sokoban where
 
 import Control.Monad.Identity (runIdentity)
 import Data.Char              (isSpace)
+import Data.Hashable          (Hashable)
 import Data.List              (find, partition)
 import Data.List.Extra        (dropEnd)
-import Data.Maybe             (fromMaybe, isJust, listToMaybe)
+import Data.Maybe             (fromJust, fromMaybe, isJust, listToMaybe)
 import Data.Tuple.Extra       (fst3)
 import Helper                 (str)
 import System.Console.ANSI    (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
@@ -19,6 +23,7 @@ import qualified Data.ByteString       as B (ByteString)
 import qualified Data.ByteString.Char8 as B (all, lines, unpack)
 import qualified Data.HashMap.Strict   as M
 import qualified Data.Text             as T
+import           GHC.Generics          (Generic)
 
 main :: IO ()
 main = undefined
@@ -31,8 +36,8 @@ data Direction
   deriving (Eq, Show)
 
 data Point =
-  Point Integer Integer
-  deriving (Eq, Show)
+  Point Int Int
+  deriving (Eq, Show, Generic, Hashable)
 
 data Cell
   = Worker Direction
@@ -55,12 +60,14 @@ data Level =
 
 data GameState =
   GameState
-    { cells     :: M.HashMap Point Cell
-    , height    :: Int
-    , width     :: Int
-    , name      :: T.Text
-    , worker    :: Point
-    , workerDir :: Direction
+    { cells      :: M.HashMap Point Cell
+    , height     :: Int
+    , width      :: Int
+    , name       :: T.Text
+    , worker     :: Point
+    , workerDrc  :: Direction
+    , blocks     :: [Point]
+    , isComplete :: Bool
     }
 
 colorStrLn :: ColorIntensity -> Color -> ColorIntensity -> Color -> String -> IO ()
@@ -70,7 +77,8 @@ colorStrLn fgi fg bgi bg str = do
   setSGR []
   putStrLn ""
 
-test = do
+testColor :: IO ()
+testColor = do
   colorStrLn Vivid White Vivid Red "This is red on white."
   colorStrLn Vivid White Dull Blue "This is white on blue."
   colorStrLn Vivid Green Dull Black "This is green on black."
@@ -78,9 +86,32 @@ test = do
   colorStrLn Dull Black Vivid Blue "This is black on light blue."
 
 initial :: Level -> GameState
-initial = gameState
+initial level = gameState
   where
-    gameState = undefined
+    worker = undefined
+    gameState =
+      GameState
+        { cells = cellsConvert --  $ cells (level :: Level)
+        , height = height (level :: Level)
+        , width = width (level :: Level)
+        , name = name (level :: Level)
+        , worker = worker
+        , workerDrc = U
+        , blocks = []
+        , isComplete = False
+        }
+
+cellsConvert :: M.HashMap Point Cell
+cellsConvert =
+  runIdentity $ do
+    let level = fromJust $ parseLevel rawLevel
+    let h = height (level :: Level)
+    let w = width (level :: Level)
+    let cs = concat $ cells (level :: Level)
+    let points = [Point (i - 1) (j - 1) | i <- [1 .. h], j <- [1 .. w]]
+    return $ M.fromList $ zip points cs
+  where
+    _findCoords = undefined
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
@@ -177,8 +208,8 @@ rawLevel =
 ; number 1
 |]
 
-rawLevelComressed :: B.ByteString
-rawLevelComressed =
+rawLevelCompressed :: B.ByteString
+rawLevelCompressed =
   [str|
     #####
    ## . #
