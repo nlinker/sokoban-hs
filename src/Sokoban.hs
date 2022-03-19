@@ -170,11 +170,11 @@ parseLevel raw = do
   -- separate the lines prefixed with ";"
   let (ds, ys) = partition (isJust . find (== ';')) xs
   let name = buildDescription ds
-  let (field, m, n) = normalize ys
+  let (field, h, w) = normalize ys
   -- let level' = sequenceA $ map (sequenceA . map parseCell) field
   let cells' = traverse (traverse parseCell) field
   case cells' of
-    Just cells -> Just Level {cells = cells, height = m, width = n, name = name}
+    Just cells -> Just Level {cells = cells, height = h, width = w, name = name}
     Nothing    -> Nothing
 
 buildDescription :: [String] -> T.Text
