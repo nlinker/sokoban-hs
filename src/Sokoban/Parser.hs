@@ -11,7 +11,7 @@ import Data.List       (find, partition)
 import Data.List.Extra (dropEnd)
 import Data.Maybe      (fromMaybe, isJust, listToMaybe)
 import Helper          (str)
-import Sokoban.Model   (Cell(..), Direction(..), Level(..))
+import Sokoban.Level   (Cell(..), Direction(..), Level(..))
 
 import qualified Data.ByteString       as B (ByteString)
 import qualified Data.ByteString.Char8 as B (all, lines, unpack)
@@ -40,7 +40,7 @@ parseLevel raw = do
   -- let level' = sequenceA $ map (sequenceA . map parseCell) field
   let cells' = traverse (traverse parseCell) field
   case cells' of
-    Just cells -> Just Level {cells = cells, height = h, width = w, name = name}
+    Just cells -> Just Level {_cells = cells, _height = h, _width = w, _name = name}
     Nothing    -> Nothing
 
 buildDescription :: [String] -> T.Text

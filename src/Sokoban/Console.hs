@@ -5,23 +5,21 @@
 module Sokoban.Console where
 
 import Control.Monad       (forM_, when)
-import Data.Maybe          (fromJust)
-import Data.Vector         (Vector, (!))
-import Sokoban.Model       (Action(..), Cell(..), Direction(..), GameState(..), Point(..), initial,
-                            step)
+import Data.Maybe          (fromJust, fromMaybe)
+import Lens.Micro          ((^.))
+import Sokoban.Level       (Cell(..), Direction(..))
+import Sokoban.Model       (GameState, Point(..), cells, getCell, height, initial, step, width)
 import Sokoban.Parser      (parseLevel, rawLevel)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 
-import qualified Data.HashMap.Strict as M
-import qualified Data.Vector         as V
-import qualified Data.Vector.Mutable as MV
+import qualified Sokoban.Model as A (Action(..))
 
 gs0 :: GameState
 gs0 = fromJust $ initial =<< parseLevel rawLevel
 
 gs1 :: GameState
-gs1 = step gs0 Up
+gs1 = step gs0 A.Up
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""
@@ -38,41 +36,38 @@ runConsoleGame :: IO ()
 runConsoleGame = do
   hSetBuffering stdin NoBuffering
   hSetEcho stdin False
-  key <- getKey
-  when (key /= "\ESC") $ do
-    case key of
-      "\ESC[A" -> putStr "↑"
-      "\ESC[B" -> putStr "↓"
-      "\ESC[C" -> putStr "→"
-      "\ESC[D" -> putStr "←"
-      "\n"     -> putStr "⎆"
-      "\DEL"   -> putStr "⎋"
-      _        -> return ()
-    runConsoleGame
+  let gs = fromMaybe (error "Impossible") (initial =<< parseLevel rawLevel)
+  render gs
+  gameLoop gs
+  where
+    gameLoop :: GameState -> IO ()
+    gameLoop gs = do
+      moveCursorUp gs
+      render gs
+      key <- getKey
+      when (key /= "\ESC") $ do
+        let gs1 =
+              case key of
+                "\ESC[A" -> step gs A.Up
+                "\ESC[B" -> step gs A.Down
+                "\ESC[C" -> step gs A.Right
+                "\ESC[D" -> step gs A.Left
+                "u"      -> step gs A.Undo
+                "r"      -> step gs A.Undo
+                _        -> gs
+        gameLoop gs1
 
-x :: Vector (Vector Cell)
-x = V.fromList [V.fromList [Empty, Empty], V.fromList [Wall, Wall]]
-
-y = put x 0 0 Wall
-
-z = put x 0 1 Wall
-
-put :: Vector (Vector Cell) -> Int -> Int -> Cell -> Vector (Vector Cell)
-put v0 i j cell =
-  let row = V.modify (\v -> MV.write v j cell) (v0 ! i)
-   in V.modify (\vv -> MV.write vv i row) v0
+moveCursorUp :: GameState -> IO ()
+moveCursorUp gs = forM_ [0 .. gs ^. height - 1] $ \_ -> putStr "\ESC[A"
 
 render :: GameState -> IO ()
 render gs = do
-  let cs = cells (gs :: GameState)
-  let m = height (gs :: GameState)
-  let n = width (gs :: GameState)
+  let cs = gs ^. cells
+  let m = gs ^. height
+  let n = gs ^. width
   let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
   forM_ points $ \p -> do
-    let (char, color) =
-          case M.lookup p cs of
-            Just c  -> renderCell c
-            Nothing -> error "Should be impossible"
+    let (char, color) = renderCell $ getCell cs p
     let Point _ j = p
     colorStr color $
       if j /= 0
@@ -91,18 +86,26 @@ render gs = do
       case c of
         (Worker d) ->
           case d of
-            U -> ('▲', White)
-            D -> ('▼', White)
-            L -> ('◀', White)
-            R -> ('▶', White)
-        (WorkerOnHole d) ->
-          case d of
             U -> ('▲', Cyan)
             D -> ('▼', Cyan)
             L -> ('◀', Cyan)
             R -> ('▶', Cyan)
+        (WorkerOnHole d) ->
+          case d of
+            U -> ('▲', Blue)
+            D -> ('▼', Blue)
+            L -> ('◀', Blue)
+            R -> ('▶', Blue)
         Wall -> ('▮', Yellow)
         Empty -> (' ', White)
         Hole -> ('⨯', Blue)
-        Box -> ('⊡', Red)
-        BoxOnHole -> ('⊠', Magenta)
+        Box -> ('☐', Red)
+        BoxOnHole -> ('☒', Magenta)
+
+{-
+variants: 
+U '▲' '△'
+D '▼' '▽'
+L '◀' '◁'
+R '▶' '▷'
+-}
