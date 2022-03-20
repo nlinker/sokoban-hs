@@ -4,9 +4,9 @@
 
 module Sokoban.Console where
 
+import Control.Lens        ((^.))
 import Control.Monad       (forM_, when)
 import Data.Maybe          (fromJust, fromMaybe)
-import Lens.Micro          ((^.))
 import Sokoban.Level       (Cell(..), Direction(..))
 import Sokoban.Model       (GameState, Point(..), cells, getCell, height, initial, step, width)
 import Sokoban.Parser      (parseLevel, rawLevel)
@@ -101,9 +101,8 @@ render gs = do
         Hole -> ('⨯', Blue)
         Box -> ('☐', Red)
         BoxOnHole -> ('☒', Magenta)
-
 {-
-variants: 
+variants:
 U '▲' '△'
 D '▼' '▽'
 L '◀' '◁'

@@ -1,5 +1,6 @@
 name: sokoban
 version: 0.1.0
+# -ddump-splices to see TH generation
 ghc-options: -threaded -Wall -fno-warn-name-shadowing
 
 executables:
@@ -39,5 +40,5 @@ dependencies:
     - unordered-containers
     - word8
     - vector
-    - microlens
-    - microlens-th
+    - lens
+

@@ -2,7 +2,7 @@
 
 module Sokoban.Level where
 
-import Lens.Micro.TH (makeLenses)
+import Control.Lens.TH (makeLenses)
 
 import qualified Data.Text as T
 
@@ -15,12 +15,12 @@ data Direction
 
 data Cell
   = Worker Direction
+  | WorkerOnHole Direction
   | Hole
   | Box
-  | Wall
-  | Empty
   | BoxOnHole
-  | WorkerOnHole Direction
+  | Empty
+  | Wall
   deriving (Eq, Show)
 
 data Level =
