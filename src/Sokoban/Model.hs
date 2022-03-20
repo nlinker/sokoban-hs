@@ -10,15 +10,14 @@ module Sokoban.Model where
 
 import Prelude hiding (Left, Right)
 
-import Control.Lens        (Lens', lens, use, (&), (+~), (.=), (.~), (^.))
+import Control.Lens        (Lens', lens, use, (&), (+~), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
+import Control.Monad       (when)
 import Control.Monad.State (State, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
-import Debug.Trace         (traceM)
 import GHC.Generics        (Generic)
 import Sokoban.Level       (Cell(..), Direction(..), Level)
-import Control.Monad (when)
 
 import qualified Data.HashSet        as S
 import qualified Data.Text           as T
@@ -138,14 +137,52 @@ step :: GameState -> Action -> GameState
 step gameState action = flip execState gameState $ runStep action
 
 runStep :: Action -> State GameState ()
-runStep action =
+runStep action = do
   case action of
     Up    -> moveWorker $ direction action
     Down  -> moveWorker $ direction action
     Left  -> moveWorker $ direction action
     Right -> moveWorker $ direction action
     _     -> return ()
+    -- now compare the sets and check the game completion
+  holes <- use holes
+  boxes <- use boxes
+  when (holes == boxes) $ error "Level complete!"
   where
+    moveWorker :: Direction -> State GameState ()
+    moveWorker d = do
+      cs0 <- use cells
+      point0 <- use worker
+      let point1 = moveDir point0 d
+      let point2 = moveDir point1 d
+      c0 <- directWorker d <$> getValidCell point0
+      c1 <- getValidCell point1
+      c2 <- getValidCell point2
+      let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
+        --      name .= T.pack (" c012 = " <> show (c0, c1, c2) <> " d012 = " <> show (d0, d1, d2) <> "             ")
+      case moveStatus of
+        Just True
+          -- moved both worker and box
+         -> do
+          worker .= point1
+          let cs1 = updateCell cs0 point0 d0
+          let cs2 = updateCell cs1 point1 d1
+          let cs3 = updateCell cs2 point2 d2
+          cells .= cs3
+        Just False
+          -- moved worker only
+         -> do
+          worker .= point1
+          let cs1 = updateCell cs0 point0 d0
+          let cs2 = updateCell cs1 point1 d1
+          cells .= cs2
+        Nothing
+          -- nothing moved (but the worker could change the direction)
+         -> do
+          let cs1 = updateCell cs0 point0 d0
+          cells .= cs1
+      return ()
+    direction :: Action -> Direction
     direction a =
       case a of
         Up    -> U
@@ -153,107 +190,43 @@ runStep action =
         Left  -> L
         Right -> R
         _     -> error $ "Should not happen: " <> show a
-    moveWorker :: Direction -> State GameState ()
-    moveWorker d = do
+    directWorker d cw =
+      case cw of
+        Worker _       -> Worker d
+        WorkerOnHole _ -> WorkerOnHole d
+        cell           -> cell
+    getValidCell :: Point -> State GameState Cell
+    getValidCell p = do
+      cs <- use cells
       m <- use height
       n <- use width
-      cells0 <- use cells
-      worker0 <- use worker
-      let worker1 = move worker0 d
-      let box1 = if isBox $ getCell cells0 worker1 then Just (move worker1 d)
-            else Nothing
-       
-      let i = worker1 ^. p_1
-      let j = worker1 ^. p_2
-      when (0 <= i && i < m && 0 <= j && j < n) $
-        when ((isBox $ getCell cells0 worker1) && (isEmptyOrHole $ getCell cells0 box1)) $ do
-          -- the move is valid
-          return ()
-            
-      do
-          let c0 = getCell cells0 worker0
-          let c1 = getCell cells0 worker1
-          cFromTo' <- checkValidMove d c0 c1
-          case cFromTo' of
-            Nothing -> do
-              return ()
-            Just (cFrom, cTo) -> do
-              return ()
-          case c1 of
-            Worker _ -> traceM $ "Impossible destination cell: " <> show c1
-            WorkerOnHole _ -> traceM $ "Impossible destination cell: " <> show c1
-            Hole -> do
-              clearFromPosition c0 d c1
-              -- new cell will become worker
-              worker .= worker1
-              cells1 <- use cells
-              cells .= updateCell cells1 worker1 (WorkerOnHole d)
-            Wall -> do
-              clearFromPosition c0 d c1
-              cells1 <- use cells
-              cells .= cells1
-            Empty -> do
-              let cells1 = updateCell cells0 worker0 c0
-              -- new cell will become worker
-              let cells2 = updateCell cells1 worker1 (Worker d)
-              worker .= worker1
-              cells .= cells2
-            Box -> do
-              let cells1 = updateCell cells0 worker0 c0
-              -- move box if possible
-              worker .= worker1
-              cells .= cells1
-            BoxOnHole -> do
-              let cells1 = updateCell cells0 worker0 c0
-              -- move box if possible
-              worker .= worker1
-              cells .= cells1
-      return ()
-    checkValidMove :: Direction -> Cell -> Cell -> State GameState (Maybe (Cell, Cell))
-    checkValidMove d src dst = do
-      let cellFrom =
-            case src of
-              WorkerOnHole _ -> Hole
-              _              -> Empty
-      let cellTo' =
-            case dst of
-              Hole      -> Just (WorkerOnHole d)
-              Box       -> Just (Worker d)
-              BoxOnHole -> Just (WorkerOnHole d)
-              Empty     -> Just (Worker d)
-              _         -> Nothing
-      return $ (cellFrom, ) <$> cellTo'
-    clearFromPosition :: Cell -> Direction -> Cell -> State GameState ()
-    clearFromPosition src d dst = do
-      worker0 <- use worker
-      cells0 <- use cells
-      let cellFrom =
-            case src of
-              WorkerOnHole _ -> Hole
-              _              -> Empty
-      let cellTo' =
-            case dst of
-              Empty     -> Just (Worker d)
-              Hole      -> Just (WorkerOnHole d)
-              Box       -> Just (Worker d)
-              BoxOnHole -> Just (WorkerOnHole d)
-              _         -> Nothing
-      case cellTo' of
-        Nothing -> return ()
-        Just cellTo ->
-          case dst of
-            Worker _       -> return ()
-            WorkerOnHole _ -> return ()
-            Hole           -> cells .= updateCell cells0 worker0 cellFrom
-            Box            -> cells .= updateCell cells0 worker0 cellFrom
-            BoxOnHole      -> cells .= updateCell cells0 worker0 cellFrom
-            Wall           -> return ()
-            Empty          -> cells .= updateCell cells0 worker0 cellFrom
+      let i = p ^. p_1
+      let j = p ^. p_2
+      if 0 <= i && i < m && 0 <= j && j < n
+        then return $ getCell cs p
+        else return Wall
+
+move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
+move triple =
+  case triple of
+    (Worker d, Box, Empty)             -> ((Empty, Worker d, Box), Just True)
+    (Worker d, Box, Hole)              -> ((Empty, Worker d, BoxOnHole), Just True)
+    (Worker d, BoxOnHole, Empty)       -> ((Empty, WorkerOnHole d, Box), Just True)
+    (Worker d, BoxOnHole, Hole)        -> ((Empty, WorkerOnHole d, BoxOnHole), Just True)
+    (WorkerOnHole d, Box, Empty)       -> ((Hole, Worker d, Box), Just True)
+    (WorkerOnHole d, Box, Hole)        -> ((Hole, Worker d, BoxOnHole), Just True)
+    (WorkerOnHole d, BoxOnHole, Empty) -> ((Hole, WorkerOnHole d, Box), Just True)
+    (WorkerOnHole d, BoxOnHole, Hole)  -> ((Hole, WorkerOnHole d, BoxOnHole), Just True)
+    (Worker d, Empty, c3)              -> ((Empty, Worker d, c3), Just False)
+    (Worker d, Hole, c3)               -> ((Empty, WorkerOnHole d, c3), Just False)
+    (WorkerOnHole d, Empty, c3)        -> ((Hole, Worker d, c3), Just False)
+    (WorkerOnHole d, Hole, c3)         -> ((Hole, WorkerOnHole d, c3), Just False)
+    _                                  -> (triple, Nothing)
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
-move :: Point -> Direction -> Point
-move p d =
+moveDir :: Point -> Direction -> Point
+moveDir p d =
   case d of
     U -> p & p_1 +~ -1
     D -> p & p_1 +~ 1

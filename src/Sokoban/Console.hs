@@ -8,11 +8,12 @@ import Control.Lens        ((^.))
 import Control.Monad       (forM_, when)
 import Data.Maybe          (fromJust, fromMaybe)
 import Sokoban.Level       (Cell(..), Direction(..))
-import Sokoban.Model       (GameState, Point(..), cells, getCell, height, initial, step, width)
+import Sokoban.Model       (GameState, Point(..), cells, getCell, height, initial, step, width , name)
 import Sokoban.Parser      (parseLevel, rawLevel)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 
+import qualified Data.Text           as T
 import qualified Sokoban.Model as A (Action(..))
 
 gs0 :: GameState
@@ -58,7 +59,7 @@ runConsoleGame = do
         gameLoop gs1
 
 moveCursorUp :: GameState -> IO ()
-moveCursorUp gs = forM_ [0 .. gs ^. height - 1] $ \_ -> putStr "\ESC[A"
+moveCursorUp gs = forM_ [0 .. gs ^. height] $ \_ -> putStr "\ESC[A"
 
 render :: GameState -> IO ()
 render gs = do
@@ -66,6 +67,7 @@ render gs = do
   let m = gs ^. height
   let n = gs ^. width
   let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
+  putStrLn $ T.unpack $ gs ^. name
   forM_ points $ \p -> do
     let (char, color) = renderCell $ getCell cs p
     let Point _ j = p
@@ -96,11 +98,11 @@ render gs = do
             D -> ('▼', Blue)
             L -> ('◀', Blue)
             R -> ('▶', Blue)
-        Wall -> ('▮', Yellow)
+        Wall -> ('■', Yellow)
         Empty -> (' ', White)
         Hole -> ('⨯', Blue)
         Box -> ('☐', Red)
-        BoxOnHole -> ('☒', Magenta)
+        BoxOnHole -> ('☒', Red)
 {-
 variants:
 U '▲' '△'
