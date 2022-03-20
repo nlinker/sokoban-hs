@@ -7,11 +7,36 @@ module Sokoban.Console where
 import Control.Monad       (forM_, when)
 import Sokoban.Model       (Cell(..), Direction(..), GameState(..), Point(..))
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
+import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 
 import qualified Data.HashMap.Strict as M
 
-main :: IO ()
-main = undefined
+getKey :: IO String
+getKey = reverse <$> getKey' ""
+  where
+    getKey' chars = do
+      char <- getChar
+      more <- hReady stdin
+      (if more
+         then getKey'
+         else return)
+        (char : chars)
+
+runConsoleGame :: IO ()
+runConsoleGame = do
+  hSetBuffering stdin NoBuffering
+  hSetEcho stdin False
+  key <- getKey
+  when (key /= "\ESC") $ do
+    case key of
+      "\ESC[A" -> putStr "↑"
+      "\ESC[B" -> putStr "↓"
+      "\ESC[C" -> putStr "→"
+      "\ESC[D" -> putStr "←"
+      "\n"     -> putStr "⎆"
+      "\DEL"   -> putStr "⎋"
+      _        -> return ()
+    runConsoleGame
 
 render :: GameState -> IO ()
 render gs = do
