@@ -38,3 +38,4 @@ dependencies:
     - text
     - unordered-containers
     - word8
+    - vector

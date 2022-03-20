@@ -6,6 +6,7 @@ module Sokoban.Console where
 
 import Control.Monad       (forM_, when)
 import Data.Maybe          (fromJust)
+import Data.Vector         (Vector, (!))
 import Sokoban.Model       (Action(..), Cell(..), Direction(..), GameState(..), Point(..), initial,
                             step)
 import Sokoban.Parser      (parseLevel, rawLevel)
@@ -13,6 +14,8 @@ import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 
 import qualified Data.HashMap.Strict as M
+import qualified Data.Vector         as V
+import qualified Data.Vector.Mutable as MV
 
 gs0 :: GameState
 gs0 = fromJust $ initial =<< parseLevel rawLevel
@@ -46,6 +49,18 @@ runConsoleGame = do
       "\DEL"   -> putStr "⎋"
       _        -> return ()
     runConsoleGame
+
+x :: Vector (Vector Cell)
+x = V.fromList [V.fromList [Empty, Empty], V.fromList [Wall, Wall]]
+
+y = put x 0 0 Wall
+
+z = put x 0 1 Wall
+
+put :: Vector (Vector Cell) -> Int -> Int -> Cell -> Vector (Vector Cell)
+put v0 i j cell =
+  let row = V.modify (\v -> MV.write v j cell) (v0 ! i)
+   in V.modify (\vv -> MV.write vv i row) v0
 
 render :: GameState -> IO ()
 render gs = do
