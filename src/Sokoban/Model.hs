@@ -9,6 +9,8 @@ module Sokoban.Model where
 import Data.Hashable (Hashable)
 import GHC.Generics  (Generic)
 
+import Control.Monad.State (execState, modify, runState)
+
 import qualified Data.HashMap.Strict as M
 import qualified Data.HashSet        as S
 import qualified Data.Text           as T
@@ -57,6 +59,17 @@ data GameState =
     }
   deriving (Eq, Show)
 
+data Action
+  = Up
+  | Down
+  | Left
+  | Right
+  | Undo
+  | Restart
+  | MoveBoxStart Point
+  | MoveBoxEnd Point
+  | MoveWorker Point
+
 initial :: Level -> Maybe GameState
 initial level = do
   let m = height (level :: Level)
@@ -99,6 +112,18 @@ initial level = do
         Hole      -> True
         BoxOnHole -> True
         _         -> False
+
+step :: GameState -> Action -> GameState
+step gameState _action =
+  flip execState gameState $ do
+    modify testModify
+    return ()
+  where
+    testModify :: GameState -> GameState
+    testModify gs =
+      let cs = cells (gs :: GameState)
+          cs2 = M.insert (Point 0 0) Wall cs
+       in gs {cells = cs2}
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.

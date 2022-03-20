@@ -5,11 +5,20 @@
 module Sokoban.Console where
 
 import Control.Monad       (forM_, when)
-import Sokoban.Model       (Cell(..), Direction(..), GameState(..), Point(..))
+import Data.Maybe          (fromJust)
+import Sokoban.Model       (Action(..), Cell(..), Direction(..), GameState(..), Point(..), initial,
+                            step)
+import Sokoban.Parser      (parseLevel, rawLevel)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 
 import qualified Data.HashMap.Strict as M
+
+gs0 :: GameState
+gs0 = fromJust $ initial =<< parseLevel rawLevel
+
+gs1 :: GameState
+gs1 = step gs0 Up
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""
