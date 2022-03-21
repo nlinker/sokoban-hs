@@ -10,45 +10,25 @@ module Sokoban.Model where
 
 import Prelude hiding (Left, Right)
 
-import Control.Lens        (Lens', lens, use, (&), (+~), (.=), (^.))
-import Control.Lens.TH     (makeLenses)
-import Control.Monad       (when, forM_)
+import Control.Lens        (ix, use, (&), (+~), (.=), (.~), (^.), _1, _2)
+import Control.Lens.TH     (makeLenses, makePrisms)
+import Control.Monad       (forM_, when)
 import Control.Monad.State (State, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
 import Sokoban.Level       (Cell(..), Direction(..), Level)
 
-import qualified Data.HashSet        as S
-import qualified Data.Text           as T
-import qualified Data.Vector         as V
-import qualified Data.Vector.Mutable as W
-import qualified Sokoban.Level       as L (cells, height, name, width)
+import qualified Data.HashSet  as S
+import qualified Data.Text     as T
+import qualified Data.Vector   as V
+import qualified Sokoban.Level as L (cells, height, name, width)
 
 data Point =
   Point Int Int
   deriving (Eq, Show, Generic, Hashable)
 
---makePrisms ''Point
-p_1 :: Lens' Point Int
-p_1 =
-  lens
-    (\p ->
-       let Point i _ = p
-        in i)
-    (\p v ->
-       let Point _ j = p
-        in Point v j)
-
-p_2 :: Lens' Point Int
-p_2 =
-  lens
-    (\p ->
-       let Point _ j = p
-        in j)
-    (\p v ->
-       let Point i _ = p
-        in Point i v)
+makePrisms ''Point
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -62,7 +42,7 @@ data GameState =
     , _boxes      :: S.HashSet Point
     , _holes      :: S.HashSet Point
     , _isComplete :: !Bool
-    , _undoStack  :: ![MatrixCell] 
+    , _undoStack  :: ![MatrixCell]
     }
   deriving (Eq, Show)
 
@@ -98,17 +78,17 @@ initial level = do
     else do
       let cells = V.fromList $ V.fromList <$> levelCells
       return $
-         GameState
-           { _cells = cells
-           , _height = m
-           , _width = n
-           , _name = level ^. L.name
-           , _worker = fst $ head workers
-           , _boxes = S.fromList $ map fst boxes
-           , _holes = S.fromList $ map fst holes
-           , _isComplete = False
-           , _undoStack = [cells]
-           }
+        GameState
+          { _cells = cells
+          , _height = m
+          , _width = n
+          , _name = level ^. L.name
+          , _worker = fst $ head workers
+          , _boxes = S.fromList $ map fst boxes
+          , _holes = S.fromList $ map fst holes
+          , _isComplete = False
+          , _undoStack = [cells]
+          }
 
 isWorker :: Cell -> Bool
 isWorker c =
@@ -144,12 +124,12 @@ step gameState action = flip execState gameState $ runStep action
 runStep :: Action -> State GameState ()
 runStep action = do
   case action of
-    Up    -> moveWorker $ direction action
-    Down  -> moveWorker $ direction action
-    Left  -> moveWorker $ direction action
-    Right -> moveWorker $ direction action
+    Up      -> moveWorker $ direction action
+    Down    -> moveWorker $ direction action
+    Left    -> moveWorker $ direction action
+    Right   -> moveWorker $ direction action
     Restart -> restartLevel
-    _     -> return ()
+    _       -> return ()
     -- now compare the sets and check the game completion
   holes <- use holes
   boxes <- use boxes
@@ -161,16 +141,15 @@ runStep action = do
       m <- use height
       n <- use width
       boxes .= S.empty
-      forM_ [0..m-1] $ \i -> do
-        forM_ [0..n-1] $ \j -> do
+      forM_ [0 .. m - 1] $ \i -> do
+        forM_ [0 .. n - 1] $ \j -> do
           let p = Point i j
           c <- getValidCell p
-          when (isWorker c) $
-            worker .= Point i j
+          when (isWorker c) $ worker .= Point i j
           when (isBox c) $ do
             bxs <- use boxes
             boxes .= (S.insert p bxs)
-      cells .= originCells   
+      cells .= originCells
       return ()
     moveWorker :: Direction -> State GameState ()
     moveWorker d = do
@@ -223,8 +202,8 @@ runStep action = do
       cs <- use cells
       m <- use height
       n <- use width
-      let i = p ^. p_1
-      let j = p ^. p_2
+      let i = p ^. _Point . _1
+      let j = p ^. _Point . _2
       if 0 <= i && i < m && 0 <= j && j < n
         then return $ getCell cs p
         else return Wall
@@ -251,10 +230,10 @@ move triple =
 moveDir :: Point -> Direction -> Point
 moveDir p d =
   case d of
-    U -> p & p_1 +~ -1
-    D -> p & p_1 +~ 1
-    L -> p & p_2 +~ -1
-    R -> p & p_2 +~ 1
+    U -> p & _Point . _1 +~ -1
+    D -> p & _Point . _1 +~ 1
+    L -> p & _Point . _2 +~ -1
+    R -> p & _Point . _2 +~ 1
 
 getCell :: MatrixCell -> Point -> Cell
 getCell mtx p =
@@ -262,7 +241,10 @@ getCell mtx p =
    in (mtx ! i) ! j
 
 updateCell :: MatrixCell -> Point -> Cell -> MatrixCell
-updateCell mtx p cell =
+updateCell mtx p cell
+  -- awesome lenses to access 2d vector
+  --   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
+  --       in V.modify (\vv -> W.write vv i row) mtx
+ =
   let Point i j = p
-   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
-       in V.modify (\vv -> W.write vv i row) mtx
+   in mtx & ix i . ix j .~ cell
