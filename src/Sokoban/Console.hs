@@ -8,10 +8,11 @@ import Control.Lens        ((^.))
 import Control.Monad       (forM_, when)
 import Data.Maybe          (fromJust, fromMaybe)
 import Sokoban.Level       (Cell(..), Direction(..))
-import Sokoban.Model       (GameState, Point(..), cells, getCell, height, initial, step, width , name)
+import Sokoban.Model       (GameState, Point(..), cells, height, initial, step, width , name)
 import Sokoban.Parser      (parseLevel, rawLevel)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import Data.Vector ((!))
 
 import qualified Data.Text           as T
 import qualified Sokoban.Model as A (Action(..))
@@ -54,7 +55,7 @@ runConsoleGame = do
                 "\ESC[C" -> step gs A.Right
                 "\ESC[D" -> step gs A.Left
                 "u"      -> step gs A.Undo
-                "r"      -> step gs A.Undo
+                "r"      -> step gs A.Restart
                 _        -> gs
         gameLoop gs1
 
@@ -69,8 +70,8 @@ render gs = do
   let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
   putStrLn $ T.unpack $ gs ^. name
   forM_ points $ \p -> do
-    let (char, color) = renderCell $ getCell cs p
-    let Point _ j = p
+    let Point i j = p
+    let (char, color) = renderCell $ (cs ! i) ! j
     colorStr color $
       if j /= 0
         then " " ++ [char]

@@ -32,9 +32,22 @@ makePrisms ''Point
 
 type MatrixCell = Vector (Vector Cell)
 
+data Diff =
+  Diff
+    { _point      :: Point
+    , _direction :: Direction
+    , _cell0      :: Cell
+    , _cell1      :: Cell
+    , _cell2      :: Cell
+    }
+  deriving (Eq, Show)
+
+makeLenses ''Diff
+
 data GameState =
   GameState
     { _cells      :: MatrixCell
+    , _origin     :: MatrixCell
     , _height     :: !Int
     , _width      :: !Int
     , _name       :: !T.Text
@@ -42,9 +55,11 @@ data GameState =
     , _boxes      :: S.HashSet Point
     , _holes      :: S.HashSet Point
     , _isComplete :: !Bool
-    , _undoStack  :: ![MatrixCell]
+    , _undoStack  :: [Diff]
     }
   deriving (Eq, Show)
+
+makeLenses ''GameState
 
 data Action
   = Up
@@ -58,8 +73,6 @@ data Action
   | MoveWorker Point
   deriving (Eq, Show)
 
-makeLenses ''GameState
-
 initial :: Level -> Maybe GameState
 initial level = do
   let m = level ^. L.height
@@ -72,6 +85,7 @@ initial level = do
       return $
         GameState
           { _cells = cells
+          , _origin = cells
           , _height = m
           , _width = n
           , _name = level ^. L.name
@@ -79,7 +93,7 @@ initial level = do
           , _boxes = boxes
           , _holes = holes
           , _isComplete = False
-          , _undoStack = [cells]
+          , _undoStack = []
           }
 
 -- extract worker, boxes and holes, needed to be run after start, restart or undo
@@ -138,10 +152,10 @@ step gameState action = flip execState gameState $ runStep action
 runStep :: Action -> State GameState ()
 runStep action = do
   case action of
-    Up      -> moveWorker $ direction action
-    Down    -> moveWorker $ direction action
-    Left    -> moveWorker $ direction action
-    Right   -> moveWorker $ direction action
+    Up      -> moveWorker $ toDirection action
+    Down    -> moveWorker $ toDirection action
+    Left    -> moveWorker $ toDirection action
+    Right   -> moveWorker $ toDirection action
     Restart -> restartLevel
     Undo    -> undoMove
     _       -> return ()
@@ -152,53 +166,73 @@ runStep action = do
   where
     restartLevel :: State GameState ()
     restartLevel = do
-      originCells <- head <$> use undoStack
+      originCells <- use origin
       case extractWBH originCells of
-        Nothing -> error $ "Impossible, invariant violation: " <> show originCells
+        Nothing -> error $ "Invariant violation: " <> show originCells
         Just (w, b, h) -> do
           worker .= w
           boxes .= b
           holes .= h
           cells .= originCells
+          undoStack .= []
       return ()
     undoMove :: State GameState ()
     undoMove = do
-      return ()
+      diffs <- use undoStack
+      case diffs of
+        [] -> return ()
+        (diff:diffs) -> do
+          let point0 = diff ^. point
+          let point1 = moveDir point0 $ diff ^. direction
+          let point2 = moveDir point1 $ diff ^. direction
+          updateCell point0 $ diff ^. cell0
+          updateCell point1 $ diff ^. cell1
+          updateCell point2 $ diff ^. cell2
+          worker .= point0
+          undoStack .= diffs
+          return ()
     moveWorker :: Direction -> State GameState ()
     moveWorker d = do
-      cs0 <- use cells
       point0 <- use worker
       let point1 = moveDir point0 d
       let point2 = moveDir point1 d
-      c0 <- directWorker d <$> getValidCell point0
-      c1 <- getValidCell point1
-      c2 <- getValidCell point2
+      cw <- getCell point0
+      c1 <- getCell point1
+      c2 <- getCell point2
+      let c0 = directWorker d cw
+      --
       let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
-        --      name .= T.pack (" c012 = " <> show (c0, c1, c2) <> " d012 = " <> show (d0, d1, d2) <> "             ")
+      let diff =
+            Diff
+              { _point = point0
+              , _direction = d
+              , _cell0 = cw 
+              , _cell1 = c1
+              , _cell2 = c2
+              }
+      when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+        -- name .= T.pack (" c012 = " <> show (c0, c1, c2) <> " d012 = " <> show (d0, d1, d2) <> "             ")
       case moveStatus of
         Just True
           -- moved both worker and box
          -> do
           worker .= point1
-          let cs1 = updateCell cs0 point0 d0
-          let cs2 = updateCell cs1 point1 d1
-          let cs3 = updateCell cs2 point2 d2
-          cells .= cs3
+          updateCell point0 d0
+          updateCell point1 d1
+          updateCell point2 d2
         Just False
           -- moved worker only
          -> do
           worker .= point1
-          let cs1 = updateCell cs0 point0 d0
-          let cs2 = updateCell cs1 point1 d1
-          cells .= cs2
+          updateCell point0 d0
+          updateCell point1 d1
         Nothing
           -- nothing moved (but the worker could change the direction)
          -> do
-          let cs1 = updateCell cs0 point0 d0
-          cells .= cs1
+          updateCell point0 d0
       return ()
-    direction :: Action -> Direction
-    direction a =
+    toDirection :: Action -> Direction
+    toDirection a =
       case a of
         Up    -> U
         Down  -> D
@@ -210,16 +244,7 @@ runStep action = do
         Worker _       -> Worker d
         WorkerOnHole _ -> WorkerOnHole d
         cell           -> cell
-    getValidCell :: Point -> State GameState Cell
-    getValidCell p = do
-      cs <- use cells
-      m <- use height
-      n <- use width
-      let i = p ^. _Point . _1
-      let j = p ^. _Point . _2
-      if 0 <= i && i < m && 0 <= j && j < n
-        then return $ getCell cs p
-        else return Wall
+
 
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =
@@ -248,19 +273,25 @@ moveDir p d =
     L -> p & _Point . _2 +~ -1
     R -> p & _Point . _2 +~ 1
 
-getCell :: MatrixCell -> Point -> Cell
-getCell mtx p =
+getCell :: Point -> State GameState Cell
+getCell p = do
+  cs <- use cells
+  m <- use height
+  n <- use width
   let Point i j = p
-   in (mtx ! i) ! j
+  if 0 <= i && i < m && 0 <= j && j < n
+    then return $ (cs ! i) ! j
+    else return Wall
 
-updateCell :: MatrixCell -> Point -> Cell -> MatrixCell
-updateCell mtx p cell
+updateCell :: Point -> Cell -> State GameState ()
+updateCell p cell = do
+  cs <- use cells
+  m <- use height
+  n <- use width
   -- awesome lenses to access 2d vector
   --   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
   --       in V.modify (\vv -> W.write vv i row) mtx
- =
   let Point i j = p
-   in mtx & ix i . ix j .~ cell
-
-xxs :: Vector (Vector Integer)
-xxs = V.fromList $ V.fromList <$> [[i * 10 + j | j <- [1 .. 4]] | i <- [1 .. 3]]
+  if 0 <= i && i < m && 0 <= j && j < n
+    then cells .= (cs & ix i . ix j .~ cell)
+    else return ()
