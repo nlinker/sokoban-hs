@@ -22,6 +22,7 @@ import Sokoban.Level       (Cell(..), Direction(..), Level)
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Vector   as V
+import           Debug.Trace   (trace)
 import qualified Sokoban.Level as L (cells, height, name, width)
 
 data Point =
@@ -34,11 +35,11 @@ type MatrixCell = Vector (Vector Cell)
 
 data Diff =
   Diff
-    { _point      :: Point
+    { _point     :: Point
     , _direction :: Direction
-    , _cell0      :: Cell
-    , _cell1      :: Cell
-    , _cell2      :: Cell
+    , _cell0     :: Cell
+    , _cell1     :: Cell
+    , _cell2     :: Cell
     }
   deriving (Eq, Show)
 
@@ -103,7 +104,8 @@ extractWBH xs =
       nws = length workers
       nbs = length boxes
       nhs = length holes
-   in if nws == 1 && nbs > 0 && nbs == nhs
+   in (trace $ "nws nbs nhs = " <> show (nws, nbs, nhs)) $
+      if nws == 1 && nbs > 0 && nbs == nhs
         then Just (head workers, S.fromList boxes, S.fromList holes)
         else Nothing
   where
@@ -142,9 +144,10 @@ isEmptyOrHole c =
 isHole :: Cell -> Bool
 isHole c =
   case c of
-    Hole      -> True
-    BoxOnHole -> True
-    _         -> False
+    Hole           -> True
+    BoxOnHole      -> True
+    WorkerOnHole _ -> True
+    _              -> False
 
 step :: GameState -> Action -> GameState
 step gameState action = flip execState gameState $ runStep action
@@ -160,9 +163,9 @@ runStep action = do
     Undo    -> undoMove
     _       -> return ()
     -- now compare the sets and check the game completion
-  holes <- use holes
-  boxes <- use boxes
-  when (holes == boxes) $ error "Level complete!"
+  hs <- use holes
+  bs <- use boxes
+  when (hs == bs) $ isComplete .= True
   where
     restartLevel :: State GameState ()
     restartLevel = do
@@ -188,34 +191,36 @@ runStep action = do
           updateCell point0 $ diff ^. cell0
           updateCell point1 $ diff ^. cell1
           updateCell point2 $ diff ^. cell2
-          worker .= point0
           undoStack .= diffs
-          return ()
+      cells <- use cells
+      case extractWBH cells of
+        Nothing -> error $ "Invariant violation: " <> show cells
+        Just (w, b, h) -> do
+          worker .= w
+          boxes .= b
+          holes .= h
+      return ()
     moveWorker :: Direction -> State GameState ()
     moveWorker d = do
       point0 <- use worker
       let point1 = moveDir point0 d
       let point2 = moveDir point1 d
-      cw <- getCell point0
+      c0' <- getCell point0
       c1 <- getCell point1
       c2 <- getCell point2
-      let c0 = directWorker d cw
-      --
+      let c0 = directWorker d c0'
+      -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnHole cell
       let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
-      let diff =
-            Diff
-              { _point = point0
-              , _direction = d
-              , _cell0 = cw 
-              , _cell1 = c1
-              , _cell2 = c2
-              }
+      -- this variant makes redirections also to be recorded and undoable
+      -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+      -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+      let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
       when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
-        -- name .= T.pack (" c012 = " <> show (c0, c1, c2) <> " d012 = " <> show (d0, d1, d2) <> "             ")
       case moveStatus of
         Just True
           -- moved both worker and box
          -> do
+          boxes %= (S.insert point2 . S.delete point1)
           worker .= point1
           updateCell point0 d0
           updateCell point1 d1
@@ -230,6 +235,8 @@ runStep action = do
           -- nothing moved (but the worker could change the direction)
          -> do
           updateCell point0 d0
+      --      let msg1 = "c012 = " <> show (c0, c1, c2) <> " -- d012 = " <> show (d0, d1, d2) <> "          \n"
+      --      name .= (T.pack $ msg1)
       return ()
     toDirection :: Action -> Direction
     toDirection a =
@@ -244,7 +251,6 @@ runStep action = do
         Worker _       -> Worker d
         WorkerOnHole _ -> WorkerOnHole d
         cell           -> cell
-
 
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =

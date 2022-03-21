@@ -6,46 +6,33 @@ module Sokoban.Console where
 
 import Control.Lens        ((^.))
 import Control.Monad       (forM_, when)
-import Data.Maybe          (fromJust, fromMaybe)
+import Data.Maybe          (fromMaybe)
+import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..))
-import Sokoban.Model       (GameState, Point(..), cells, height, initial, step, width , name)
+import Sokoban.Model       (GameState, Point(..), cells, height, initial, name, step, width, isComplete)
 import Sokoban.Parser      (parseLevel, rawLevel)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import Data.Vector ((!))
 
-import qualified Data.Text           as T
+import qualified Data.Text     as T
 import qualified Sokoban.Model as A (Action(..))
 
-gs0 :: GameState
-gs0 = fromJust $ initial =<< parseLevel rawLevel
-
-gs1 :: GameState
-gs1 = step gs0 A.Up
-
-getKey :: IO String
-getKey = reverse <$> getKey' ""
-  where
-    getKey' chars = do
-      char <- getChar
-      more <- hReady stdin
-      (if more
-         then getKey'
-         else return)
-        (char : chars)
-
+-- tracking mouse clicks inside terminal window
+-- https://stackoverflow.com/a/5970472/5066426
 runConsoleGame :: IO ()
 runConsoleGame = do
   hSetBuffering stdin NoBuffering
   hSetEcho stdin False
   let gs = fromMaybe (error "Impossible") (initial =<< parseLevel rawLevel)
-  render gs
+  -- render gs
   gameLoop gs
   where
     gameLoop :: GameState -> IO ()
     gameLoop gs = do
       moveCursorUp gs
       render gs
+      when (gs ^. isComplete) $
+        error "Level complete"
       key <- getKey
       when (key /= "\ESC") $ do
         let gs1 =
@@ -60,7 +47,25 @@ runConsoleGame = do
         gameLoop gs1
 
 moveCursorUp :: GameState -> IO ()
-moveCursorUp gs = forM_ [0 .. gs ^. height] $ \_ -> putStr "\ESC[A"
+moveCursorUp _gs = do
+  putStr "\ESC[2J"
+  putStr "\ESC[0;0H"
+  --  let hs = gs ^. holes
+  --  let bs = gs ^. boxes
+  --  let isc = gs ^. isComplete
+  --  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc    
+  --  forM_ [0 .. gs ^. height + 21] $ \_ -> putStr "\ESC[A"
+
+getKey :: IO String
+getKey = reverse <$> getKey' ""
+  where
+    getKey' chars = do
+      char <- getChar
+      more <- hReady stdin
+      (if more
+         then getKey'
+         else return)
+        (char : chars)
 
 render :: GameState -> IO ()
 render gs = do
@@ -68,7 +73,6 @@ render gs = do
   let m = gs ^. height
   let n = gs ^. width
   let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
-  putStrLn $ T.unpack $ gs ^. name
   forM_ points $ \p -> do
     let Point i j = p
     let (char, color) = renderCell $ (cs ! i) ! j
@@ -77,6 +81,7 @@ render gs = do
         then " " ++ [char]
         else [char]
     when (j == n - 1) $ putStrLn ""
+  putStrLn $ T.unpack $ gs ^. name
   where
     colorStr :: Color -> String -> IO ()
     colorStr color str = do
@@ -89,19 +94,19 @@ render gs = do
       case c of
         (Worker d) ->
           case d of
-            U -> ('▲', Cyan)
-            D -> ('▼', Cyan)
-            L -> ('◀', Cyan)
-            R -> ('▶', Cyan)
+            U -> ('▲', Green)
+            D -> ('▼', Green)
+            L -> ('◀', Green)
+            R -> ('▶', Green)
         (WorkerOnHole d) ->
           case d of
-            U -> ('▲', Blue)
-            D -> ('▼', Blue)
-            L -> ('◀', Blue)
-            R -> ('▶', Blue)
-        Wall -> ('■', Yellow)
+            U -> ('▲', Yellow)
+            D -> ('▼', Yellow)
+            L -> ('◀', Yellow)
+            R -> ('▶', Yellow)
+        Wall -> ('■', Blue)
         Empty -> (' ', White)
-        Hole -> ('⨯', Blue)
+        Hole -> ('⨯', Yellow)
         Box -> ('☐', Red)
         BoxOnHole -> ('☒', Red)
 {-

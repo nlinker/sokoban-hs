@@ -44,7 +44,7 @@ parseLevel raw = do
     Nothing    -> Nothing
 
 buildDescription :: [String] -> T.Text
-buildDescription xs = T.pack $ concat pieces
+buildDescription xs = T.pack $ dropWhile (== ' ') $ concat pieces
   where
     convert x = tail $ dropWhile (/= ';') x
     pieces = map convert xs
@@ -102,6 +102,15 @@ rawLevel =
       # # # # #
   ; The maze
 ; number 1
+|]
+
+rawLevelSimple :: B.ByteString
+rawLevelSimple =
+  [str|
+  # # # # # #
+  # @ $   . #
+  # # # # # #
+  ; Simplest maze ever
 |]
 
 rawLevelCompressed :: B.ByteString
