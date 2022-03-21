@@ -10,7 +10,7 @@ module Sokoban.Model where
 
 import Prelude hiding (Left, Right)
 
-import Control.Lens        (ix, use, (&), (+~), (.=), (.~), (^.), _1, _2)
+import Control.Lens        (ix, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, when)
 import Control.Monad.State (State, execState)
@@ -64,31 +64,45 @@ initial :: Level -> Maybe GameState
 initial level = do
   let m = level ^. L.height
   let n = level ^. L.width
-  let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
   let levelCells = level ^. L.cells
-  let zippedCells = zip points $ concat levelCells
-    -- now extract worker, boxes and holes
-    -- worker must exist, and should be 1
-    -- the number of boxes should be the number of holes
-  let workers = filter (isWorker . snd) zippedCells
-  let boxes = filter (isBox . snd) zippedCells
-  let holes = filter (isHole . snd) zippedCells
-  if length workers /= 1 || length boxes /= length holes
-    then Nothing
-    else do
-      let cells = V.fromList $ V.fromList <$> levelCells
+  let cells = V.fromList $ V.fromList <$> levelCells
+  case extractWBH cells of
+    Nothing -> Nothing
+    Just (worker, boxes, holes) -> do
       return $
         GameState
           { _cells = cells
           , _height = m
           , _width = n
           , _name = level ^. L.name
-          , _worker = fst $ head workers
-          , _boxes = S.fromList $ map fst boxes
-          , _holes = S.fromList $ map fst holes
+          , _worker = worker
+          , _boxes = boxes
+          , _holes = holes
           , _isComplete = False
           , _undoStack = [cells]
           }
+
+-- extract worker, boxes and holes, needed to be run after start, restart or undo
+extractWBH :: MatrixCell -> Maybe (Point, S.HashSet Point, S.HashSet Point)
+extractWBH xs =
+  let (workers, boxes, holes) = (flip execState) ([], [], []) extract
+      nws = length workers
+      nbs = length boxes
+      nhs = length holes
+   in if nws == 1 && nbs > 0 && nbs == nhs
+        then Just (head workers, S.fromList boxes, S.fromList holes)
+        else Nothing
+  where
+    extract = do
+      let m = V.length xs
+      let n = V.length (xs ! 0)
+      forM_ [0 .. m - 1] $ \i ->
+        forM_ [0 .. n - 1] $ \j -> do
+          let x = (xs ! i) ! j
+          when (isWorker x) $ _1 %= ((Point i j) :)
+          when (isBox x) $ _2 %= ((Point i j) :)
+          when (isHole x) $ _3 %= ((Point i j) :)
+      return ()
 
 isWorker :: Cell -> Bool
 isWorker c =
@@ -129,6 +143,7 @@ runStep action = do
     Left    -> moveWorker $ direction action
     Right   -> moveWorker $ direction action
     Restart -> restartLevel
+    Undo    -> undoMove
     _       -> return ()
     -- now compare the sets and check the game completion
   holes <- use holes
@@ -138,18 +153,16 @@ runStep action = do
     restartLevel :: State GameState ()
     restartLevel = do
       originCells <- head <$> use undoStack
-      m <- use height
-      n <- use width
-      boxes .= S.empty
-      forM_ [0 .. m - 1] $ \i -> do
-        forM_ [0 .. n - 1] $ \j -> do
-          let p = Point i j
-          c <- getValidCell p
-          when (isWorker c) $ worker .= Point i j
-          when (isBox c) $ do
-            bxs <- use boxes
-            boxes .= (S.insert p bxs)
-      cells .= originCells
+      case extractWBH originCells of
+        Nothing -> error $ "Impossible, invariant violation: " <> show originCells
+        Just (w, b, h) -> do
+          worker .= w
+          boxes .= b
+          holes .= h
+          cells .= originCells
+      return ()
+    undoMove :: State GameState ()
+    undoMove = do
       return ()
     moveWorker :: Direction -> State GameState ()
     moveWorker d = do
@@ -248,3 +261,6 @@ updateCell mtx p cell
  =
   let Point i j = p
    in mtx & ix i . ix j .~ cell
+
+xxs :: Vector (Vector Integer)
+xxs = V.fromList $ V.fromList <$> [[i * 10 + j | j <- [1 .. 4]] | i <- [1 .. 3]]
