@@ -12,7 +12,7 @@ import Prelude hiding (Left, Right)
 
 import Control.Lens        (Lens', lens, use, (&), (+~), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
-import Control.Monad       (when)
+import Control.Monad       (when, forM_)
 import Control.Monad.State (State, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
@@ -62,6 +62,7 @@ data GameState =
     , _boxes      :: S.HashSet Point
     , _holes      :: S.HashSet Point
     , _isComplete :: !Bool
+    , _undoStack  :: ![MatrixCell] 
     }
   deriving (Eq, Show)
 
@@ -94,9 +95,11 @@ initial level = do
   let holes = filter (isHole . snd) zippedCells
   if length workers /= 1 || length boxes /= length holes
     then Nothing
-    else return $
+    else do
+      let cells = V.fromList $ V.fromList <$> levelCells
+      return $
          GameState
-           { _cells = V.fromList $ V.fromList <$> levelCells
+           { _cells = cells
            , _height = m
            , _width = n
            , _name = level ^. L.name
@@ -104,13 +107,15 @@ initial level = do
            , _boxes = S.fromList $ map fst boxes
            , _holes = S.fromList $ map fst holes
            , _isComplete = False
+           , _undoStack = [cells]
            }
-  where
-    isWorker c =
-      case c of
-        (Worker _)       -> True
-        (WorkerOnHole _) -> True
-        _                -> False
+
+isWorker :: Cell -> Bool
+isWorker c =
+  case c of
+    (Worker _)       -> True
+    (WorkerOnHole _) -> True
+    _                -> False
 
 isBox :: Cell -> Bool
 isBox c =
@@ -143,12 +148,30 @@ runStep action = do
     Down  -> moveWorker $ direction action
     Left  -> moveWorker $ direction action
     Right -> moveWorker $ direction action
+    Restart -> restartLevel
     _     -> return ()
     -- now compare the sets and check the game completion
   holes <- use holes
   boxes <- use boxes
   when (holes == boxes) $ error "Level complete!"
   where
+    restartLevel :: State GameState ()
+    restartLevel = do
+      originCells <- head <$> use undoStack
+      m <- use height
+      n <- use width
+      boxes .= S.empty
+      forM_ [0..m-1] $ \i -> do
+        forM_ [0..n-1] $ \j -> do
+          let p = Point i j
+          c <- getValidCell p
+          when (isWorker c) $
+            worker .= Point i j
+          when (isBox c) $ do
+            bxs <- use boxes
+            boxes .= (S.insert p bxs)
+      cells .= originCells   
+      return ()
     moveWorker :: Direction -> State GameState ()
     moveWorker d = do
       cs0 <- use cells
