@@ -1,6 +1,6 @@
 :set -itest -isrc
 :set prompt "\ESC[0;34mλ> \ESC[m"
-:set prompt2 "\ESC[0;34mε> \ESC[m"
+:set prompt-cont "\ESC[0;34mε> \ESC[m"
 
 :set -XOverloadedStrings
 :set -XFlexibleContexts

@@ -9,21 +9,32 @@ import Control.Monad       (forM_, when)
 import Data.Maybe          (fromMaybe)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..))
-import Sokoban.Model       (GameState, Point(..), cells, height, initial, name, step, width, isComplete)
-import Sokoban.Parser      (parseLevel, rawLevel)
+import Sokoban.Model       (GameState, Point(..), cells, height, initial, isComplete, name, step,
+                            width)
+import Sokoban.Parser      (parseLevels)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
+import System.Environment  (getArgs)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 
 import qualified Data.Text     as T
+import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
 
 -- tracking mouse clicks inside terminal window
 -- https://stackoverflow.com/a/5970472/5066426
 runConsoleGame :: IO ()
 runConsoleGame = do
+  args <- getArgs
+  let fileName =
+        if null args
+          then error "One command line argument must be passed, levels collection in txt format"
+          else head args
+  levels' <- parseLevels <$> T.readFile fileName
+  let levels = fromMaybe (error $ "Cannot parse file " <> fileName) levels'
   hSetBuffering stdin NoBuffering
   hSetEcho stdin False
-  let gs = fromMaybe (error "Impossible") (initial =<< parseLevel rawLevel)
+  let level = head levels
+  let gs = fromMaybe (error "Impossible") (initial level)
   -- render gs
   gameLoop gs
   where
@@ -31,8 +42,7 @@ runConsoleGame = do
     gameLoop gs = do
       moveCursorUp gs
       render gs
-      when (gs ^. isComplete) $
-        error "Level complete"
+      when (gs ^. isComplete) $ error "Level complete"
       key <- getKey
       when (key /= "\ESC") $ do
         let gs1 =
@@ -41,9 +51,9 @@ runConsoleGame = do
                 "\ESC[B" -> step gs A.Down
                 "\ESC[C" -> step gs A.Right
                 "\ESC[D" -> step gs A.Left
-                "u"      -> step gs A.Undo
-                "r"      -> step gs A.Restart
-                _        -> gs
+                "u" -> step gs A.Undo
+                "r" -> step gs A.Restart
+                _ -> gs
         gameLoop gs1
 
 moveCursorUp :: GameState -> IO ()
@@ -53,7 +63,7 @@ moveCursorUp _gs = do
   --  let hs = gs ^. holes
   --  let bs = gs ^. boxes
   --  let isc = gs ^. isComplete
-  --  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc    
+  --  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc
   --  forM_ [0 .. gs ^. height + 21] $ \_ -> putStr "\ESC[A"
 
 getKey :: IO String

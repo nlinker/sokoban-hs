@@ -82,29 +82,29 @@ initial level = do
   let cells = V.fromList $ V.fromList <$> levelCells
   case extractWBH cells of
     Nothing -> Nothing
-    Just (worker, boxes, holes) -> do
+    Just (worker, boxes, holes) ->
       return $
-        GameState
-          { _cells = cells
-          , _origin = cells
-          , _height = m
-          , _width = n
-          , _name = level ^. L.name
-          , _worker = worker
-          , _boxes = boxes
-          , _holes = holes
-          , _isComplete = False
-          , _undoStack = []
-          }
+      GameState
+        { _cells = cells
+        , _origin = cells
+        , _height = m
+        , _width = n
+        , _name = level ^. L.name
+        , _worker = worker
+        , _boxes = boxes
+        , _holes = holes
+        , _isComplete = False
+        , _undoStack = []
+        }
 
 -- extract worker, boxes and holes, needed to be run after start, restart or undo
 extractWBH :: MatrixCell -> Maybe (Point, S.HashSet Point, S.HashSet Point)
 extractWBH xs =
-  let (workers, boxes, holes) = (flip execState) ([], [], []) extract
+  let (workers, boxes, holes) = execState extract ([], [], [])
       nws = length workers
       nbs = length boxes
       nhs = length holes
-   in (trace $ "nws nbs nhs = " <> show (nws, nbs, nhs)) $
+   in trace ("nws nbs nhs = " <> show (nws, nbs, nhs)) $
       if nws == 1 && nbs > 0 && nbs == nhs
         then Just (head workers, S.fromList boxes, S.fromList holes)
         else Nothing
@@ -115,10 +115,9 @@ extractWBH xs =
       forM_ [0 .. m - 1] $ \i ->
         forM_ [0 .. n - 1] $ \j -> do
           let x = (xs ! i) ! j
-          when (isWorker x) $ _1 %= ((Point i j) :)
-          when (isBox x) $ _2 %= ((Point i j) :)
-          when (isHole x) $ _3 %= ((Point i j) :)
-      return ()
+          when (isWorker x) $ _1 %= (Point i j :)
+          when (isBox x) $ _2 %= (Point i j :)
+          when (isHole x) $ _3 %= (Point i j :)
 
 isWorker :: Cell -> Bool
 isWorker c =
@@ -233,8 +232,7 @@ runStep action = do
           updateCell point1 d1
         Nothing
           -- nothing moved (but the worker could change the direction)
-         -> do
-          updateCell point0 d0
+         -> updateCell point0 d0
       --      let msg1 = "c012 = " <> show (c0, c1, c2) <> " -- d012 = " <> show (d0, d1, d2) <> "          \n"
       --      name .= (T.pack $ msg1)
       return ()
@@ -298,6 +296,4 @@ updateCell p cell = do
   --   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
   --       in V.modify (\vv -> W.write vv i row) mtx
   let Point i j = p
-  if 0 <= i && i < m && 0 <= j && j < n
-    then cells .= (cs & ix i . ix j .~ cell)
-    else return ()
+  when (0 <= i && i < m && 0 <= j && j < n) $ cells .= (cs & ix i . ix j .~ cell)

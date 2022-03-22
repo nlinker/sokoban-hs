@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
@@ -13,9 +12,23 @@ import Data.Maybe      (fromMaybe, isJust, listToMaybe)
 import Helper          (str)
 import Sokoban.Level   (Cell(..), Direction(..), Level(..))
 
-import qualified Data.ByteString       as B (ByteString)
-import qualified Data.ByteString.Char8 as B (all, lines, unpack)
-import qualified Data.Text             as T
+import qualified Data.Text as T
+
+parseLevels :: T.Text -> Maybe [Level]
+parseLevels raw = sequenceA $ parseLevel <$> (splitWith (not . T.all isSpace) . T.lines $ raw)
+
+parseLevel :: [T.Text] -> Maybe Level
+parseLevel rawLines = do
+  let xs = map T.unpack $ filter (not . T.all isSpace) rawLines
+  -- separate the lines prefixed with ";"
+  let (ds, ys) = partition (isJust . find (== ';')) xs
+  let name = buildDescription ds
+  let (field, h, w) = normalize ys
+  -- let level' = sequenceA $ map (sequenceA . map parseCell) field
+  let cells' = traverse (traverse parseCell) field
+  case cells' of
+    Just cells -> Just Level {_cells = cells, _height = h, _width = w, _name = name}
+    Nothing    -> Nothing
 
 parseCell :: Char -> Maybe Cell
 parseCell c =
@@ -28,20 +41,6 @@ parseCell c =
     '$' -> Just Box
     '*' -> Just BoxOnHole
     _   -> Nothing
-
--- break string into lines
-parseLevel :: B.ByteString -> Maybe Level
-parseLevel raw = do
-  let xs = map B.unpack $ filter (not . B.all isSpace) $ B.lines raw
-  -- separate the lines prefixed with ";"
-  let (ds, ys) = partition (isJust . find (== ';')) xs
-  let name = buildDescription ds
-  let (field, h, w) = normalize ys
-  -- let level' = sequenceA $ map (sequenceA . map parseCell) field
-  let cells' = traverse (traverse parseCell) field
-  case cells' of
-    Just cells -> Just Level {_cells = cells, _height = h, _width = w, _name = name}
-    Nothing    -> Nothing
 
 buildDescription :: [String] -> T.Text
 buildDescription xs = T.pack $ dropWhile (== ' ') $ concat pieces
@@ -89,7 +88,16 @@ commonPrefix p (x:xs) (y:ys) =
 commonSuffix :: Eq a => (a -> Bool) -> [a] -> [a] -> [a]
 commonSuffix p xs ys = commonPrefix p (reverse xs) (reverse ys)
 
-rawLevel :: B.ByteString
+-- taken from https://stackoverflow.com/a/19927596/5066426
+splitWith :: (t -> Bool) -> [t] -> [[t]]
+splitWith pred (x:xs)
+  | pred x =
+    let (first, rest) = span pred (x : xs)
+     in first : splitWith pred rest
+  | otherwise = splitWith pred xs
+splitWith _pred [] = []
+
+rawLevel :: String
 rawLevel =
   [str|
       # # # # #
@@ -104,7 +112,7 @@ rawLevel =
 ; number 1
 |]
 
-rawLevelSimple :: B.ByteString
+rawLevelSimple :: String
 rawLevelSimple =
   [str|
   # # # # # #
@@ -113,7 +121,7 @@ rawLevelSimple =
   ; Simplest maze ever
 |]
 
-rawLevelCompressed :: B.ByteString
+rawLevelCompressed :: String
 rawLevelCompressed =
   [str|
     #####
