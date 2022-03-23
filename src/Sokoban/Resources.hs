@@ -1,4 +1,5 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
 
 module Sokoban.Resources where
 
@@ -13,13 +14,14 @@ microbanCollection :: LevelCollection
 microbanCollection =
   LevelCollection
     { _title = "Microban"
-    , _description = [str|Microban (155 puzzles, revised April, 2000) This is a good set for
-                      beginners and children. Most of the puzzles are small and illustrate a
-                      particular concept. More experienced players should also find them
-                      interesting, since they are as different from each other as I could
-                      make them given their size. Sokoholics could perhaps time themselves
-                      on completing the whole set. This set also contains puzzles which I
-                      thought were interesting but too easy to include in my regular sets.|]
+    , _description =
+        [str|Microban (155 puzzles, revised April, 2000) This is a good set for
+            beginners and children. Most of the puzzles are small and illustrate a
+            particular concept. More experienced players should also find them
+            interesting, since they are as different from each other as I could
+            make them given their size. Sokoholics could perhaps time themselves
+            on completing the whole set. This set also contains puzzles which I
+            thought were interesting but too easy to include in my regular sets.|]
     , _email = "sasquatch@bentonrea.com"
     , _url = "http://users.bentonrea.com/~sasquatch/sokoban/"
     , _copyright = "David W Skinner"

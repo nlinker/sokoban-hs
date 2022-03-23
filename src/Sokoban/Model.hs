@@ -1,27 +1,30 @@
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# LANGUAGE TupleSections         #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Model where
 
 import Prelude hiding (Left, Right)
 
-import Control.Lens        (ix, over, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
+import Control.Lens        (ix, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, when)
-import Control.Monad.State (execState, MonadState)
+import Control.Monad.State (MonadState, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
-import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection)
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, levels)
 
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Vector   as V
+import           Debug.Trace   (traceM)
 import qualified Sokoban.Level as L (cells, height, id, width)
 
 data Point =
@@ -46,7 +49,8 @@ makeLenses ''Diff
 
 data LevelState =
   LevelState
-    { _cells      :: MatrixCell
+    { _id         :: !T.Text
+    , _cells      :: MatrixCell
     , _origin     :: MatrixCell
     , _height     :: !Int
     , _width      :: !Int
@@ -55,7 +59,6 @@ data LevelState =
     , _holes      :: S.HashSet Point
     , _isComplete :: !Bool
     , _undoStack  :: [Diff]
-    , _name       :: !T.Text
     , _message    :: !T.Text
     }
   deriving (Eq, Show)
@@ -98,7 +101,8 @@ initial level = do
     Just (worker, boxes, holes) ->
       return $
       LevelState
-        { _cells = cells
+        { _id = level ^. L.id
+        , _cells = cells
         , _origin = cells
         , _height = m
         , _width = n
@@ -107,7 +111,6 @@ initial level = do
         , _holes = holes
         , _isComplete = False
         , _undoStack = []
-        , _name = level ^. L.id
         , _message = ""
         }
 
@@ -166,21 +169,30 @@ step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
+  ls <- use levelState
+  let allowToMove = not $ ls ^. isComplete
   case action of
-    Up      -> moveWorker $ toDirection action
-    Down    -> moveWorker $ toDirection action
-    Left    -> moveWorker $ toDirection action
-    Right   -> moveWorker $ toDirection action
-    Restart -> restartLevel
-    Undo    -> undoMove
-    Redo    -> redoMove
+    Up        -> when allowToMove $ moveWorker $ toDirection action
+    Down      -> when allowToMove $ moveWorker $ toDirection action
+    Left      -> when allowToMove $ moveWorker $ toDirection action
+    Right     -> when allowToMove $ moveWorker $ toDirection action
+    Restart   -> restartLevel
+    Undo      -> undoMove
+    Redo      -> redoMove
     PrevLevel -> switchLevel (negate 1)
     NextLevel -> switchLevel 1
-    _       -> return ()
+    _         -> return ()
     -- now compare the sets and check the game completion
-  hs <- use (levelState . holes)
-  bs <- use (levelState . boxes)
-  when (hs == bs) $ levelState . isComplete .= True
+  hs <- use $ levelState . holes
+  bs <- use $ levelState . boxes
+  if hs == bs
+    then do
+      levelState . isComplete .= True
+      levelState . message .= "Level complete!"
+    else do
+      levelState . isComplete .= False
+      levelState . message .= ""
+
   where
     restartLevel :: MonadState GameState m => m ()
     restartLevel = do
@@ -195,11 +207,17 @@ runStep action = do
           levelState . undoStack .= []
       return ()
     switchLevel :: MonadState GameState m => Int -> m ()
-    switchLevel a = do
-      
-            
-      return ()
-    redoMove :: MonadState GameState m => m ()  
+    switchLevel di = do
+      idx <- (+ di) <$> use index
+      levels <- use (collection . levels)
+      levelState . message .= T.pack ("switchLevel: length levels = " <> show (length levels))
+      let newIdx
+            | idx < 0 = 0
+            | idx > length levels - 1 = length levels - 1
+            | otherwise = idx
+      -- it does update the state for sure, since it has already been verified during the parsing
+      forM_ (initial (levels !! newIdx)) (levelState .=)
+    redoMove :: MonadState GameState m => m ()
     redoMove = undefined
     undoMove :: MonadState GameState m => m ()
     undoMove = do
@@ -320,5 +338,4 @@ updateCell p cell = do
   -- awesome lenses to access 2d vector
   --   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
   --       in V.modify (\vv -> W.write vv i row) mtx
-  when (0 <= i && i < m && 0 <= j && j < n) $ 
-    levelState . cells .= (cs & ix i . ix j .~ cell)
+  when (0 <= i && i < m && 0 <= j && j < n) $ levelState . cells .= (cs & ix i . ix j .~ cell)

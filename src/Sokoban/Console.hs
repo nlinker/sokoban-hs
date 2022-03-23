@@ -1,16 +1,19 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Console where
+
+import Prelude hiding (id)
 
 import Control.Lens        ((^.))
 import Control.Monad       (forM_, when)
 import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
-import Sokoban.Model       (GameState(..), Point(..), cells, height, initial,
-                            isComplete, name, step, width, levelState, message)
+import Sokoban.Model       (GameState(..), Point(..), cells, height, id, initial, levelState,
+                            message, step, width)
 import Sokoban.Parser      (parseLevels)
 import Sokoban.Resources   (microbanCollection)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
@@ -44,20 +47,16 @@ runConsoleGame = do
           , _index = 0
           , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
           }
-
   hSetBuffering stdin NoBuffering
   hSetEcho stdin False
   gameLoop gameState
 
 --startGameLoop :: GameState -> IO ()
 --startGameLoop = do
-
 gameLoop :: GameState -> IO ()
 gameLoop gs = do
   moveCursorUp gs
   render gs
-  -- TODO this is weird
-  when (gs ^. levelState . isComplete) $ error "Level complete"
   key <- getKey
   when (key /= "\ESC") $ do
     let gs1 =
@@ -110,7 +109,7 @@ render gs = do
         then " " ++ [char]
         else [char]
     when (j == n - 1) $ putStrLn ""
-  T.putStrLn $ "Level: " <> ls ^. name
+  T.putStrLn $ "Level: " <> ls ^. id
   T.putStrLn $ ls ^. message
   where
     colorStr :: Color -> String -> IO ()
