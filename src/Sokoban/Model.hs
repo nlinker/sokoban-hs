@@ -13,7 +13,7 @@ import Prelude hiding (Left, Right)
 import Control.Lens        (ix, over, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, when)
-import Control.Monad.State (State, execState)
+import Control.Monad.State (execState, MonadState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
@@ -162,9 +162,9 @@ isHole c =
     _              -> False
 
 step :: GameState -> Action -> GameState
-step gameState action = over levelState (execState $ runStep action) gameState
+step gameState action = (execState $ runStep action) gameState
 
-runStep :: Action -> State LevelState ()
+runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
   case action of
     Up      -> moveWorker $ toDirection action
@@ -173,27 +173,37 @@ runStep action = do
     Right   -> moveWorker $ toDirection action
     Restart -> restartLevel
     Undo    -> undoMove
+    Redo    -> redoMove
+    PrevLevel -> switchLevel (negate 1)
+    NextLevel -> switchLevel 1
     _       -> return ()
     -- now compare the sets and check the game completion
-  hs <- use holes
-  bs <- use boxes
-  when (hs == bs) $ isComplete .= True
+  hs <- use (levelState . holes)
+  bs <- use (levelState . boxes)
+  when (hs == bs) $ levelState . isComplete .= True
   where
-    restartLevel :: State LevelState ()
+    restartLevel :: MonadState GameState m => m ()
     restartLevel = do
-      originCells <- use origin
+      originCells <- use (levelState . origin)
       case extractWBH originCells of
         Nothing -> error $ "Invariant violation: " <> show originCells
         Just (w, b, h) -> do
-          worker .= w
-          boxes .= b
-          holes .= h
-          cells .= originCells
-          undoStack .= []
+          levelState . worker .= w
+          levelState . boxes .= b
+          levelState . holes .= h
+          levelState . cells .= originCells
+          levelState . undoStack .= []
       return ()
-    undoMove :: State LevelState ()
+    switchLevel :: MonadState GameState m => Int -> m ()
+    switchLevel a = do
+      
+            
+      return ()
+    redoMove :: MonadState GameState m => m ()  
+    redoMove = undefined
+    undoMove :: MonadState GameState m => m ()
     undoMove = do
-      diffs <- use undoStack
+      diffs <- use (levelState . undoStack)
       case diffs of
         [] -> return ()
         (diff:diffs) -> do
@@ -203,18 +213,18 @@ runStep action = do
           updateCell point0 $ diff ^. cell0
           updateCell point1 $ diff ^. cell1
           updateCell point2 $ diff ^. cell2
-          undoStack .= diffs
-      cells <- use cells
+          levelState . undoStack .= diffs
+      cells <- use (levelState . cells)
       case extractWBH cells of
         Nothing -> error $ "Invariant violation: " <> show cells
         Just (w, b, h) -> do
-          worker .= w
-          boxes .= b
-          holes .= h
+          levelState . worker .= w
+          levelState . boxes .= b
+          levelState . holes .= h
       return ()
-    moveWorker :: Direction -> State LevelState ()
+    moveWorker :: MonadState GameState m => Direction -> m ()
     moveWorker d = do
-      point0 <- use worker
+      point0 <- use (levelState . worker)
       let point1 = moveDir point0 d
       let point2 = moveDir point1 d
       c0' <- getCell point0
@@ -227,20 +237,20 @@ runStep action = do
       -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
       -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
       let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-      when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+      when ((d0, d1, d2) /= (c0, c1, c2)) $ levelState . undoStack %= (diff :)
       case moveStatus of
         Just True
           -- moved both worker and box
          -> do
-          boxes %= (S.insert point2 . S.delete point1)
-          worker .= point1
+          levelState . boxes %= (S.insert point2 . S.delete point1)
+          levelState . worker .= point1
           updateCell point0 d0
           updateCell point1 d1
           updateCell point2 d2
         Just False
           -- moved worker only
          -> do
-          worker .= point1
+          levelState . worker .= point1
           updateCell point0 d0
           updateCell point1 d1
         Nothing
@@ -290,23 +300,25 @@ moveDir p d =
     L -> p & _Point . _2 +~ -1
     R -> p & _Point . _2 +~ 1
 
-getCell :: Point -> State LevelState Cell
+getCell :: MonadState GameState m => Point -> m Cell
 getCell p = do
-  cs <- use cells
-  m <- use height
-  n <- use width
+  ls <- use levelState
+  let m = ls ^. height
+  let n = ls ^. width
   let Point i j = p
   if 0 <= i && i < m && 0 <= j && j < n
-    then return $ (cs ! i) ! j
+    then return $ ((ls ^. cells) ! i) ! j
     else return Wall
 
-updateCell :: Point -> Cell -> State LevelState ()
+updateCell :: MonadState GameState m => Point -> Cell -> m ()
 updateCell p cell = do
-  cs <- use cells
-  m <- use height
-  n <- use width
+  ls <- use levelState
+  let cs = ls ^. cells
+  let m = ls ^. height
+  let n = ls ^. width
+  let Point i j = p
   -- awesome lenses to access 2d vector
   --   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
   --       in V.modify (\vv -> W.write vv i row) mtx
-  let Point i j = p
-  when (0 <= i && i < m && 0 <= j && j < n) $ cells .= (cs & ix i . ix j .~ cell)
+  when (0 <= i && i < m && 0 <= j && j < n) $ 
+    levelState . cells .= (cs & ix i . ix j .~ cell)

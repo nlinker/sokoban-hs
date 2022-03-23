@@ -52,7 +52,6 @@ runConsoleGame = do
 --startGameLoop :: GameState -> IO ()
 --startGameLoop = do
 
-
 gameLoop :: GameState -> IO ()
 gameLoop gs = do
   moveCursorUp gs
