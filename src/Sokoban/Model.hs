@@ -10,20 +10,19 @@ module Sokoban.Model where
 
 import Prelude hiding (Left, Right)
 
-import Control.Lens        (ix, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
+import Control.Lens        (ix, over, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, when)
 import Control.Monad.State (State, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
-import Sokoban.Level       (Cell(..), Direction(..), Level)
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection)
 
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Vector   as V
-import           Debug.Trace   (trace)
-import qualified Sokoban.Level as L (cells, height, name, width)
+import qualified Sokoban.Level as L (cells, height, id, width)
 
 data Point =
   Point Int Int
@@ -35,28 +34,39 @@ type MatrixCell = Vector (Vector Cell)
 
 data Diff =
   Diff
-    { _point     :: Point
-    , _direction :: Direction
-    , _cell0     :: Cell
-    , _cell1     :: Cell
-    , _cell2     :: Cell
+    { _point     :: !Point
+    , _direction :: !Direction
+    , _cell0     :: !Cell
+    , _cell1     :: !Cell
+    , _cell2     :: !Cell
     }
   deriving (Eq, Show)
 
 makeLenses ''Diff
 
-data GameState =
-  GameState
+data LevelState =
+  LevelState
     { _cells      :: MatrixCell
     , _origin     :: MatrixCell
     , _height     :: !Int
     , _width      :: !Int
-    , _name       :: !T.Text
     , _worker     :: !Point
     , _boxes      :: S.HashSet Point
     , _holes      :: S.HashSet Point
     , _isComplete :: !Bool
     , _undoStack  :: [Diff]
+    , _name       :: !T.Text
+    , _message    :: !T.Text
+    }
+  deriving (Eq, Show)
+
+makeLenses ''LevelState
+
+data GameState =
+  GameState
+    { _collection :: !LevelCollection
+    , _index      :: !Int
+    , _levelState :: !LevelState
     }
   deriving (Eq, Show)
 
@@ -68,13 +78,16 @@ data Action
   | Left
   | Right
   | Undo
+  | Redo
   | Restart
+  | PrevLevel
+  | NextLevel
   | MoveBoxStart Point
   | MoveBoxEnd Point
   | MoveWorker Point
   deriving (Eq, Show)
 
-initial :: Level -> Maybe GameState
+initial :: Level -> Maybe LevelState
 initial level = do
   let m = level ^. L.height
   let n = level ^. L.width
@@ -84,28 +97,28 @@ initial level = do
     Nothing -> Nothing
     Just (worker, boxes, holes) ->
       return $
-      GameState
+      LevelState
         { _cells = cells
         , _origin = cells
         , _height = m
         , _width = n
-        , _name = level ^. L.name
         , _worker = worker
         , _boxes = boxes
         , _holes = holes
         , _isComplete = False
         , _undoStack = []
+        , _name = level ^. L.id
+        , _message = ""
         }
 
 -- extract worker, boxes and holes, needed to be run after start, restart or undo
 extractWBH :: MatrixCell -> Maybe (Point, S.HashSet Point, S.HashSet Point)
 extractWBH xs =
   let (workers, boxes, holes) = execState extract ([], [], [])
-      nws = length workers
-      nbs = length boxes
-      nhs = length holes
-   in trace ("nws nbs nhs = " <> show (nws, nbs, nhs)) $
-      if nws == 1 && nbs > 0 && nbs == nhs
+      workersCount = length workers
+      boxesCount = length boxes
+      holesCount = length holes
+   in if workersCount == 1 && boxesCount > 0 && boxesCount == holesCount
         then Just (head workers, S.fromList boxes, S.fromList holes)
         else Nothing
   where
@@ -149,9 +162,9 @@ isHole c =
     _              -> False
 
 step :: GameState -> Action -> GameState
-step gameState action = flip execState gameState $ runStep action
+step gameState action = over levelState (execState $ runStep action) gameState
 
-runStep :: Action -> State GameState ()
+runStep :: Action -> State LevelState ()
 runStep action = do
   case action of
     Up      -> moveWorker $ toDirection action
@@ -166,7 +179,7 @@ runStep action = do
   bs <- use boxes
   when (hs == bs) $ isComplete .= True
   where
-    restartLevel :: State GameState ()
+    restartLevel :: State LevelState ()
     restartLevel = do
       originCells <- use origin
       case extractWBH originCells of
@@ -178,7 +191,7 @@ runStep action = do
           cells .= originCells
           undoStack .= []
       return ()
-    undoMove :: State GameState ()
+    undoMove :: State LevelState ()
     undoMove = do
       diffs <- use undoStack
       case diffs of
@@ -199,7 +212,7 @@ runStep action = do
           boxes .= b
           holes .= h
       return ()
-    moveWorker :: Direction -> State GameState ()
+    moveWorker :: Direction -> State LevelState ()
     moveWorker d = do
       point0 <- use worker
       let point1 = moveDir point0 d
@@ -277,7 +290,7 @@ moveDir p d =
     L -> p & _Point . _2 +~ -1
     R -> p & _Point . _2 +~ 1
 
-getCell :: Point -> State GameState Cell
+getCell :: Point -> State LevelState Cell
 getCell p = do
   cs <- use cells
   m <- use height
@@ -287,7 +300,7 @@ getCell p = do
     then return $ (cs ! i) ! j
     else return Wall
 
-updateCell :: Point -> Cell -> State GameState ()
+updateCell :: Point -> Cell -> State LevelState ()
 updateCell p cell = do
   cs <- use cells
   m <- use height

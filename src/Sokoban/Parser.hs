@@ -27,7 +27,7 @@ parseLevel rawLines = do
   -- let level' = sequenceA $ map (sequenceA . map parseCell) field
   let cells' = traverse (traverse parseCell) field
   case cells' of
-    Just cells -> Just Level {_cells = cells, _height = h, _width = w, _name = name}
+    Just cells -> Just Level {_cells = cells, _height = h, _width = w, _id = name}
     Nothing    -> Nothing
 
 parseCell :: Char -> Maybe Cell
@@ -112,8 +112,8 @@ rawLevel =
 ; number 1
 |]
 
-rawLevelSimple :: String
-rawLevelSimple =
+rawDefaultCollection :: String
+rawDefaultCollection =
   [str|
   # # # # # #
   # @ $   . #
@@ -121,17 +121,3 @@ rawLevelSimple =
   ; Simplest maze ever
 |]
 
-rawLevelCompressed :: String
-rawLevelCompressed =
-  [str|
-    #####
-   ## . #
-   # . $#
-  ##$#..#
-  #@$ * #
-  # $   #
-  ###   #
-    #####
-  ; The maze
-  ; number 2
-|]

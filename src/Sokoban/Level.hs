@@ -28,8 +28,23 @@ data Level =
     { _cells  :: ![[Cell]]
     , _height :: !Int
     , _width  :: !Int
-    , _name   :: !T.Text
+    , _id     :: !T.Text
     }
   deriving (Eq, Show)
 
 makeLenses ''Level
+
+-- Fields are took from SLC format, but more flattened
+-- e.g. http://www.sourcecode.se/sokoban/download/microban.slc
+data LevelCollection =
+  LevelCollection
+    { _title       :: !T.Text
+    , _description :: !T.Text
+    , _email       :: !T.Text
+    , _url         :: !T.Text
+    , _copyright   :: !T.Text
+    , _levels      :: ![Level]
+    }
+  deriving (Eq, Show)
+
+makeLenses ''LevelCollection
