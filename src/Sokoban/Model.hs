@@ -24,7 +24,6 @@ import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, lev
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Vector   as V
-import           Debug.Trace   (traceM)
 import qualified Sokoban.Level as L (cells, height, id, width)
 
 data Point =
@@ -169,13 +168,11 @@ step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
-  ls <- use levelState
-  let allowToMove = not $ ls ^. isComplete
   case action of
-    Up        -> when allowToMove $ moveWorker $ toDirection action
-    Down      -> when allowToMove $ moveWorker $ toDirection action
-    Left      -> when allowToMove $ moveWorker $ toDirection action
-    Right     -> when allowToMove $ moveWorker $ toDirection action
+    Up        -> moveWorker $ toDirection action
+    Down      -> moveWorker $ toDirection action
+    Left      -> moveWorker $ toDirection action
+    Right     -> moveWorker $ toDirection action
     Restart   -> restartLevel
     Undo      -> undoMove
     Redo      -> redoMove
@@ -183,20 +180,18 @@ runStep action = do
     NextLevel -> switchLevel 1
     _         -> return ()
     -- now compare the sets and check the game completion
-  hs <- use $ levelState . holes
-  bs <- use $ levelState . boxes
-  if hs == bs
+  ls <- use levelState
+  if ls ^. holes == ls ^. boxes
     then do
       levelState . isComplete .= True
       levelState . message .= "Level complete!"
     else do
       levelState . isComplete .= False
       levelState . message .= ""
-
   where
     restartLevel :: MonadState GameState m => m ()
     restartLevel = do
-      originCells <- use (levelState . origin)
+      originCells <- use $ levelState . origin
       case extractWBH originCells of
         Nothing -> error $ "Invariant violation: " <> show originCells
         Just (w, b, h) -> do
@@ -216,7 +211,9 @@ runStep action = do
             | idx > length levels - 1 = length levels - 1
             | otherwise = idx
       -- it does update the state for sure, since it has already been verified during the parsing
-      forM_ (initial (levels !! newIdx)) (levelState .=)
+      forM_ (initial (levels !! newIdx)) $ \l -> do
+        index .= newIdx
+        levelState .= l
     redoMove :: MonadState GameState m => m ()
     redoMove = undefined
     undoMove :: MonadState GameState m => m ()
@@ -242,41 +239,44 @@ runStep action = do
       return ()
     moveWorker :: MonadState GameState m => Direction -> m ()
     moveWorker d = do
-      point0 <- use (levelState . worker)
-      let point1 = moveDir point0 d
-      let point2 = moveDir point1 d
-      c0' <- getCell point0
-      c1 <- getCell point1
-      c2 <- getCell point2
-      let c0 = directWorker d c0'
-      -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnHole cell
-      let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
-      -- this variant makes redirections also to be recorded and undoable
-      -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-      -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
-      let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-      when ((d0, d1, d2) /= (c0, c1, c2)) $ levelState . undoStack %= (diff :)
-      case moveStatus of
-        Just True
-          -- moved both worker and box
-         -> do
-          levelState . boxes %= (S.insert point2 . S.delete point1)
-          levelState . worker .= point1
-          updateCell point0 d0
-          updateCell point1 d1
-          updateCell point2 d2
-        Just False
-          -- moved worker only
-         -> do
-          levelState . worker .= point1
-          updateCell point0 d0
-          updateCell point1 d1
-        Nothing
-          -- nothing moved (but the worker could change the direction)
-         -> updateCell point0 d0
-      --      let msg1 = "c012 = " <> show (c0, c1, c2) <> " -- d012 = " <> show (d0, d1, d2) <> "          \n"
-      --      name .= (T.pack $ msg1)
-      return ()
+      ls <- use levelState
+      let allowToMove = not $ ls ^. isComplete
+      when allowToMove $ do
+        let point0 = ls ^. worker
+        let point1 = moveDir point0 d
+        let point2 = moveDir point1 d
+        c0' <- getCell point0
+        c1 <- getCell point1
+        c2 <- getCell point2
+        let c0 = directWorker d c0'
+        -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnHole cell
+        let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
+        -- this variant makes redirections also to be recorded and undoable
+        -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+        -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+        let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+        when ((d0, d1, d2) /= (c0, c1, c2)) $ levelState . undoStack %= (diff :)
+        case moveStatus of
+          Just True
+            -- moved both worker and box
+           -> do
+            levelState . boxes %= (S.insert point2 . S.delete point1)
+            levelState . worker .= point1
+            updateCell point0 d0
+            updateCell point1 d1
+            updateCell point2 d2
+          Just False
+            -- moved worker only
+           -> do
+            levelState . worker .= point1
+            updateCell point0 d0
+            updateCell point1 d1
+          Nothing
+            -- nothing moved (but the worker could change the direction)
+           -> updateCell point0 d0
+        --      let msg1 = "c012 = " <> show (c0, c1, c2) <> " -- d012 = " <> show (d0, d1, d2) <> "          \n"
+        --      name .= (T.pack $ msg1)
+        return ()
     toDirection :: Action -> Direction
     toDirection a =
       case a of
@@ -290,6 +290,7 @@ runStep action = do
         Worker _       -> Worker d
         WorkerOnHole _ -> WorkerOnHole d
         cell           -> cell
+
 
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =

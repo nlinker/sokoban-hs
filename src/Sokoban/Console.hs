@@ -13,7 +13,7 @@ import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
 import Sokoban.Model       (GameState(..), Point(..), cells, height, id, initial, levelState,
-                            message, step, width)
+                            message, step, width, collection)
 import Sokoban.Parser      (parseLevels)
 import Sokoban.Resources   (microbanCollection)
 import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
@@ -36,6 +36,7 @@ runConsoleGame = do
         let fileName = head args
         levels0 <- fromMaybe (error $ "Cannot parse file " <> fileName) . parseLevels <$> T.readFile fileName
         let levels = filter (isJust . initial) levels0 -- check invariants for each level as well
+        
         when (null levels) $ error $ "File " <> fileName <> " contains no sokoban levels"
         return $
           LevelCollection
