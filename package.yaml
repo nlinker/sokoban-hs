@@ -1,6 +1,7 @@
 name: sokoban
 version: 0.1.0
 # -ddump-splices to see TH generation
+# -ddump-ds to desugar
 ghc-options: -threaded -Wall -fno-warn-name-shadowing
 
 executables:
@@ -36,6 +37,7 @@ dependencies:
     - MonadRandom
     - mtl
     - template-haskell
+    - transformers
     - text
     - unordered-containers
     - word8

@@ -38,3 +38,21 @@ The aim is to build flexible testable model of the game, and make IO layer as th
 ### Info on sokoban solvers
 
 http://sokobano.de/wiki/index.php?title=Solver
+
+### Useful information
+
+- [How to get MouseMove and MouseClick in bash](https://stackoverflow.com/a/5970472/5066426)
+- [Simple XLib program to highlight the cursor position](https://github.com/arp242/find-cursor)
+- [Handling Control-C in Haskell](https://neilmitchell.blogspot.com/2015/05/handling-control-c-in-haskell.html?m=1)
+
+- Unicode symbols to try for walls, holes, boxes and worker:
+
+```
+⬛ ■ ◼ ◾ ▪ □ ⬚ ▫ ◻ ❎ ⬛ ⬜ ▢ ▣ ◽ ❑ ❒ ❏ ❐ ▩ ▦ ▧ ▨ ⊞ ⊡ ☒
+⊕ ⊗ ✪ ⊙ ⦾ ⦿ ⊚ ⊛ ○ ◌ ● ◯ ⬤ ⌾ ⍟ ⨯ ⁘
+
+U  ▲ △ ⬆ ⇧ ◩ ◓ ◒
+D  ▼ ▽ ⬇ ⇩ ◪ ◒ ◓
+L  ◀ ◁ ⬅ ⇦ ⬕ ◐ ◑
+R  ▶ ▷ ➡ ⇨ ⬔ ◑ ◐
+```

@@ -7,25 +7,29 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Lens        ((^.))
-import Control.Monad       (forM_, when)
+import Control.Exception         (finally)
+import Control.Lens              ((^.))
+import Control.Monad             (forM_, when)
+
+import Data.Char           (isDigit)
+import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
-import Sokoban.Model       (GameState(..), Point(..), cells, height, id, initial, levelState,
-                            message, step, width, collection)
-import Sokoban.Parser      (parseLevels)
+import Sokoban.Model       (GameState(..), Point(..), cells, height, id, initial, interpretClick,
+                            levelState, message, step, width)
+import Sokoban.Parser      (parseLevels, splitWith)
 import Sokoban.Resources   (microbanCollection)
-import System.Console.ANSI (Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
+import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..),
+                            SGR(..), setSGR)
 import System.Environment  (getArgs)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import Text.Read           (readMaybe)
 
-import qualified Data.Text     as T
-import qualified Data.Text.IO  as T
-import qualified Sokoban.Model as A (Action(..))
+import qualified Data.Text              as T
+import qualified Data.Text.IO           as T
+import qualified Sokoban.Model          as A (Action(..))
 
--- tracking mouse clicks inside terminal window
--- https://stackoverflow.com/a/5970472/5066426
 runConsoleGame :: IO ()
 runConsoleGame = do
   args <- getArgs
@@ -36,7 +40,6 @@ runConsoleGame = do
         let fileName = head args
         levels0 <- fromMaybe (error $ "Cannot parse file " <> fileName) . parseLevels <$> T.readFile fileName
         let levels = filter (isJust . initial) levels0 -- check invariants for each level as well
-        
         when (null levels) $ error $ "File " <> fileName <> " contains no sokoban levels"
         return $
           LevelCollection
@@ -48,12 +51,19 @@ runConsoleGame = do
           , _index = 0
           , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
           }
-  hSetBuffering stdin NoBuffering
-  hSetEcho stdin False
-  gameLoop gameState
+  do hSetBuffering stdin NoBuffering
+     hSetEcho stdin False
+     putStrLn "\ESC[?1000h"
+     putStrLn "\ESC[?1015h"
+     putStrLn "\ESC[?1006h"
+     gameLoop gameState `finally` do
+       putStrLn "\ESC[?1006l"
+       putStrLn "\ESC[?1015l"
+       putStrLn "\ESC[?1000l"
 
---startGameLoop :: GameState -> IO ()
---startGameLoop = do
+--  putStrLn "\ESC[?1000l"
+--  putStrLn "\ESC[?1000l"
+--     putStrLn "\ESC[?1015h"
 gameLoop :: GameState -> IO ()
 gameLoop gs = do
   moveCursorUp gs
@@ -71,9 +81,27 @@ gameLoop gs = do
             "r"       -> step gs A.Restart
             "\ESC[5~" -> step gs A.PrevLevel
             "\ESC[6~" -> step gs A.NextLevel
-            _         -> gs
+            "d"       -> step gs A.Debug
+            _         -> dispatchOther gs key
     gameLoop gs1
+  where
+    dispatchOther :: GameState -> String -> GameState
+    dispatchOther gs key =
+      fromMaybe gs $ do
+        click <- extractMouseClick key
+        action <- interpretClick gs click
+        return $ step gs action
+                                          -- gs & levelState . message .~ T.pack (show c)
+    extractMouseClick :: String -> Maybe (Point, Bool)
+    extractMouseClick key = do
+      rest <- stripPrefix "\ESC[<0;" key
+      -- expected input in the form "\ESC[<0;2;3m" or "\ESC[<0;2;3M"
+      let lbmDown = "M" `isSuffixOf` rest
+      case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
+        [Just x, Just y] -> Just (Point (y - 1) ((x - 1) `div` 2), lbmDown)
+        _                -> Nothing
 
+--  moveCursorUp gs
 moveCursorUp :: GameState -> IO ()
 moveCursorUp _gs = do
   putStr "\ESC[2J"
@@ -105,7 +133,7 @@ render gs = do
   forM_ points $ \p -> do
     let Point i j = p
     let (char, color) = renderCell $ (cs ! i) ! j
-    colorStr color $
+    colorStr color False $
       if j /= 0
         then " " ++ [char]
         else [char]
@@ -113,9 +141,12 @@ render gs = do
   T.putStrLn $ "Level: " <> ls ^. id
   T.putStrLn $ ls ^. message
   where
-    colorStr :: Color -> String -> IO ()
-    colorStr color str = do
-      setSGR [SetColor Foreground Vivid color, SetColor Background Dull Black]
+    colorStr :: Color -> Bool -> String -> IO ()
+    colorStr color blink str = do
+      setSGR $
+        if blink
+          then [SetColor Foreground Vivid color, SetColor Background Dull Black, SetBlinkSpeed SlowBlink]
+          else [SetColor Foreground Vivid color, SetColor Background Dull Black]
       putStr str
       setSGR []
       putStr ""
@@ -124,25 +155,18 @@ render gs = do
       case c of
         (Worker d) ->
           case d of
-            U -> ('▲', Green)
-            D -> ('▼', Green)
-            L -> ('◀', Green)
-            R -> ('▶', Green)
+            U -> ('◒', Green)
+            D -> ('◓', Green)
+            L -> ('◑', Green)
+            R -> ('◐', Green)
         (WorkerOnHole d) ->
           case d of
-            U -> ('▲', Yellow)
-            D -> ('▼', Yellow)
-            L -> ('◀', Yellow)
-            R -> ('▶', Yellow)
-        Wall -> ('■', Blue)
+            U -> ('◒', Red)
+            D -> ('◓', Red)
+            L -> ('◑', Red)
+            R -> ('◐', Red)
+        Wall -> ('▩', Blue)
         Empty -> (' ', White)
-        Hole -> ('⨯', Yellow)
-        Box -> ('☐', Red)
-        BoxOnHole -> ('☒', Red)
-{-
-variants:
-U '▲' '△'
-D '▼' '▽'
-L '◀' '◁'
-R '▶' '▷'
--}
+        Hole -> ('⁘', Red)
+        Box -> ('▩', Yellow)
+        BoxOnHole -> ('▩', Red)
