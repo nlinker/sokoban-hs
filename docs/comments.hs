@@ -1,3 +1,15 @@
+
+
+-- debug example
+
+--  let hs = gs ^. holes
+--  let bs = gs ^. boxes
+--  let isc = gs ^. isComplete
+--  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc
+--  forM_ [0 .. gs ^. height + 21] $ \_ -> putStr "\ESC[A"
+-- gs & levelState . message .~ T.pack (show c)
+
+
 {-
 import Sokoban.Model       (GameState, Point(..), cells, height, initial, name, step, width, holes, boxes, isComplete, extractWBH)
 import Sokoban.Parser      (parseLevel, rawLevel, rawLevelSimple)
@@ -46,4 +58,56 @@ diffs <- use undoStack
 let space = (replicate 80 ' ') <> "\n"
 let msg = concatMap (\x -> show x <> "\n") diffs <> space
 name .= T.pack msg
+
+
+# in the current copy of the repo
+git filter-branch --tree-filter "rm -rf haskell/sokoban" --prune-empty HEAD
+git for-each-ref --format="%(refname)" refs/original/ | xargs -n 1 git update-ref -d
+
+# in another clone of the repo
+# separate subdir into separate repo
+git filter-branch --prune-empty --subdirectory-filter haskell/sokoban master
+
+
+  # Filter the specified branch in your directory and remove empty commits
+  > Rewrite 48dc599c80e20527ed902928085e7861e6b3cbe6 (89/89)
+  > Ref 'refs/heads/BRANCH-NAME' was rewritten
+
+
+import qualified Data.Text    as Text
+import qualified Data.Text.IO as Text
+
+main = do
+    ls <- fmap Text.lines (Text.readFile "filename.txt")
+
+
+stack runghc --package brick MouseDemo.hs
+
+
+
+M C b C x C y
+C x and C y are the x and y coordinates of the mouse event, encoded as in X10 mode.
+
+upper left
+[27,91,60,48,59,49,59,49,109]
+--->
+[27,91,60,48,59,57,59,49,109]
+--->
+[27,91,60,48,59,49,48,59,49,109]
+--->
+[27,91,60,48,59,49,57,59,50,109]
+[27,91,60,48,59,50,48,59,50,109]
+
+
+bottom left
+[27,91,60,48,59,49,59,51,51,109]
+
+upper right
+[27,91,60,48,59,49,50,53,59,49,109]
+
+bottom right
+[27,91,60,48,59,49,50,53,59,51,51,109]
+
+readMaybe
+
 -}

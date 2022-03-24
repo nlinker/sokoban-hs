@@ -36,6 +36,7 @@ dependencies:
     - hashable
     - MonadRandom
     - mtl
+    - rainbox
     - template-haskell
     - transformers
     - text

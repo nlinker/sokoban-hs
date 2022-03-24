@@ -14,17 +14,17 @@ import Prelude hiding (Left, Right)
 
 import Control.Lens        (ix, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
-import Control.Monad       (forM_, when, unless)
+import Control.Monad       (forM_, unless, when)
 import Control.Monad.State (MonadState, evalState, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, levels)
 
-import qualified Data.HashSet  as S
-import qualified Data.Text     as T
-import qualified Data.Vector   as V
-import qualified Sokoban.Level as L (cells, height, id, width)
+import qualified Data.HashSet           as S
+import qualified Data.Text              as T
+import qualified Data.Vector            as V
+import qualified Sokoban.Level          as L (cells, height, id, width)
 
 data Point =
   Point Int Int
@@ -86,8 +86,7 @@ data Action
   | Restart
   | PrevLevel
   | NextLevel
-  | MoveBoxStart Point
-  | MoveBoxEnd Point
+  | MoveBoxes [Point] [Point]
   | MoveWorker Point
   | Debug
   deriving (Eq, Show)
@@ -140,130 +139,136 @@ runStep action = do
       levelState . message .= "Level complete!"
     else levelState . isComplete .= False
   -- dumpState
-  where
-    dumpState :: MonadState GameState m => m ()
-    dumpState = do
-      undos <- use $ levelState . undoStack
-      uidx <- use $ levelState . undoIndex
-      let msg1 = "uidx: " <> show uidx <> "\n"
-      let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
-      levelState . message .= T.pack msg2
-      return ()
-    restartLevel :: MonadState GameState m => m ()
-    restartLevel = do
-      originCells <- use $ levelState . origin
-      case extractWBH originCells of
-        Nothing -> error $ "Invariant violation: " <> show originCells
-        Just (w, b, h) -> do
-          levelState . worker .= w
-          levelState . boxes .= b
-          levelState . holes .= h
-          levelState . cells .= originCells
-          levelState . undoStack .= []
-          levelState . undoIndex .= -1
-      return ()
-    switchLevel :: MonadState GameState m => Int -> m ()
-    switchLevel di = do
-      idx <- (+ di) <$> use index
-      levels <- use (collection . levels)
-      levelState . message .= T.pack ("switchLevel: length levels = " <> show (length levels))
-      let newIdx
-            | idx < 0 = 0
-            | idx > length levels - 1 = length levels - 1
-            | otherwise = idx
-      -- it does update the state for sure, since it has already been verified during the parsing
-      forM_ (initial (levels !! newIdx)) $ \l -> do
-        index .= newIdx
-        levelState .= l
-    redoMove :: MonadState GameState m => m ()
-    redoMove = do
-      undos <- use $ levelState . undoStack
-      uidx <- use $ levelState . undoIndex
-      when (0 < uidx && uidx <= length undos) $ do
-        let diff = undos !! (uidx - 1)
-        moveWorker (diff ^. direction) True
-        levelState . undoIndex .= uidx - 1
-    undoMove :: MonadState GameState m => m ()
-    undoMove = do
-      undos <- use $ levelState . undoStack
-      uidx <- use $ levelState . undoIndex
-      when (0 <= uidx && uidx < length undos) $ do
-        let diff = undos !! uidx
-        let point0 = diff ^. point
-        let point1 = moveDir point0 $ diff ^. direction
-        let point2 = moveDir point1 $ diff ^. direction
-        updateCell point0 $ diff ^. cell0
-        updateCell point1 $ diff ^. cell1
-        updateCell point2 $ diff ^. cell2
-        levelState . undoIndex .= uidx + 1
-        -- rebuild levelState
-        cells <- use (levelState . cells)
-        case extractWBH cells of
-          Nothing -> error $ "Invariant violation: " <> show cells
-          Just (w, b, h) -> do
-            levelState . worker .= w
-            levelState . boxes .= b
-            levelState . holes .= h
-    moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
-    moveWorker d redoing = do
-      ls <- use levelState
-      let allowToMove = not $ ls ^. isComplete
-      when allowToMove $ do
-        let point0 = ls ^. worker
-        let point1 = moveDir point0 d
-        let point2 = moveDir point1 d
-        c0' <- getCell point0
-        c1 <- getCell point1
-        c2 <- getCell point2
-        let c0 = directWorker d c0'
-        -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnHole cell
-        let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
-        case moveStatus of
-          Just True
-            -- moved both worker and box
-           -> do
-            levelState . boxes %= (S.insert point2 . S.delete point1)
-            levelState . worker .= point1
-            updateCell point0 d0
-            updateCell point1 d1
-            updateCell point2 d2
-          Just False
-            -- moved worker only
-           -> do
-            levelState . worker .= point1
-            updateCell point0 d0
-            updateCell point1 d1
-          Nothing
-            -- nothing moved (but the worker could change the direction)
-           -> updateCell point0 d0
-        
-        unless redoing $ do
-          -- now update the undo stack
-          -- this variant makes redirections also to be recorded and undoable
-          -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-          -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
-          let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-          when ((d0, d1, d2) /= (c0, c1, c2)) $ do
-            let uidx = ls ^. undoIndex
-            -- undoStack: [diff3, diff2, diff1, diff0]  =>  [diff, d1, d0]
-            -- undoIndex:                 ^2^           =>    ^0^
-            levelState . undoStack .= diff : drop uidx (ls ^. undoStack)
-            levelState . undoIndex .= 0
 
-    toDirection :: Action -> Direction
-    toDirection a =
-      case a of
-        Up    -> U
-        Down  -> D
-        Left  -> L
-        Right -> R
-        _     -> error $ "Should not happen: " <> show a
-    directWorker :: Direction -> Cell -> Cell
-    directWorker d cw =
-      case cw of
-        Worker _       -> Worker d
-        WorkerOnHole _ -> WorkerOnHole d
-        cell           -> cell
+dumpState :: MonadState GameState m => m ()
+dumpState = do
+  undos <- use $ levelState . undoStack
+  uidx <- use $ levelState . undoIndex
+  let msg1 = "uidx: " <> show uidx <> "\n"
+  let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
+  levelState . message .= T.pack msg2
+  return ()
+
+restartLevel :: MonadState GameState m => m ()
+restartLevel = do
+  originCells <- use $ levelState . origin
+  case extractWBH originCells of
+    Nothing -> error $ "Invariant violation: " <> show originCells
+    Just (w, b, h) -> do
+      levelState . worker .= w
+      levelState . boxes .= b
+      levelState . holes .= h
+      levelState . cells .= originCells
+      levelState . undoStack .= []
+      levelState . undoIndex .= -1
+  return ()
+
+switchLevel :: MonadState GameState m => Int -> m ()
+switchLevel di = do
+  idx <- (+ di) <$> use index
+  levels <- use (collection . levels)
+  levelState . message .= T.pack ("switchLevel: length levels = " <> show (length levels))
+  let newIdx
+        | idx < 0 = 0
+        | idx > length levels - 1 = length levels - 1
+        | otherwise = idx
+  -- it does update the state for sure, since it has already been verified during the parsing
+  forM_ (initial (levels !! newIdx)) $ \l -> do
+    index .= newIdx
+    levelState .= l
+
+redoMove :: MonadState GameState m => m ()
+redoMove = do
+  undos <- use $ levelState . undoStack
+  uidx <- use $ levelState . undoIndex
+  when (0 < uidx && uidx <= length undos) $ do
+    let diff = undos !! (uidx - 1)
+    moveWorker (diff ^. direction) True
+    levelState . undoIndex .= uidx - 1
+
+undoMove :: MonadState GameState m => m ()
+undoMove = do
+  undos <- use $ levelState . undoStack
+  uidx <- use $ levelState . undoIndex
+  when (0 <= uidx && uidx < length undos) $ do
+    let diff = undos !! uidx
+    let point0 = diff ^. point
+    let point1 = moveDir point0 $ diff ^. direction
+    let point2 = moveDir point1 $ diff ^. direction
+    updateCell point0 $ diff ^. cell0
+    updateCell point1 $ diff ^. cell1
+    updateCell point2 $ diff ^. cell2
+    levelState . undoIndex .= uidx + 1
+    -- rebuild levelState
+    cells <- use (levelState . cells)
+    case extractWBH cells of
+      Nothing -> error $ "Invariant violation: " <> show cells
+      Just (w, b, h) -> do
+        levelState . worker .= w
+        levelState . boxes .= b
+        levelState . holes .= h
+
+moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
+moveWorker d redoing = do
+  ls <- use levelState
+  let allowToMove = not $ ls ^. isComplete
+  when allowToMove $ do
+    let point0 = ls ^. worker
+    let point1 = moveDir point0 d
+    let point2 = moveDir point1 d
+    c0' <- getCell point0
+    c1 <- getCell point1
+    c2 <- getCell point2
+    let c0 = directWorker d c0'
+    -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnHole cell
+    let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
+    case moveStatus of
+      Just True
+        -- moved both worker and box
+       -> do
+        levelState . boxes %= (S.insert point2 . S.delete point1)
+        levelState . worker .= point1
+        updateCell point0 d0
+        updateCell point1 d1
+        updateCell point2 d2
+      Just False
+        -- moved worker only
+       -> do
+        levelState . worker .= point1
+        updateCell point0 d0
+        updateCell point1 d1
+      Nothing
+        -- nothing moved (but the worker could change the direction)
+       -> updateCell point0 d0
+    unless redoing $
+      -- now update the undo stack
+      -- this variant makes redirections also to be recorded and undoable
+      -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+      -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+     do
+      let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+      when ((d0, d1, d2) /= (c0, c1, c2)) $ do
+        let uidx = ls ^. undoIndex
+        -- undoStack: [diff3, diff2, diff1, diff0]  =>  [diff, d1, d0]
+        -- undoIndex:                 ^2^           =>    ^0^
+        levelState . undoStack .= diff : drop uidx (ls ^. undoStack)
+        levelState . undoIndex .= 0
+
+toDirection :: Action -> Direction
+toDirection a =
+  case a of
+    Up    -> U
+    Down  -> D
+    Left  -> L
+    Right -> R
+    _     -> error $ "Should not happen: " <> show a
+
+directWorker :: Direction -> Cell -> Cell
+directWorker d cw =
+  case cw of
+    Worker _       -> Worker d
+    WorkerOnHole _ -> WorkerOnHole d
+    cell           -> cell
 
 ---------------------------------------------------------------------------------------------
 -- build the initial state

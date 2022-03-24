@@ -7,10 +7,9 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Exception         (finally)
-import Control.Lens              ((^.))
-import Control.Monad             (forM_, when)
-
+import Control.Exception   (finally)
+import Control.Lens        ((^.))
+import Control.Monad       (forM_, when)
 import Data.Char           (isDigit)
 import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
@@ -26,9 +25,9 @@ import System.Environment  (getArgs)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.Read           (readMaybe)
 
-import qualified Data.Text              as T
-import qualified Data.Text.IO           as T
-import qualified Sokoban.Model          as A (Action(..))
+import qualified Data.Text     as T
+import qualified Data.Text.IO  as T
+import qualified Sokoban.Model as A (Action(..))
 
 runConsoleGame :: IO ()
 runConsoleGame = do
@@ -51,22 +50,25 @@ runConsoleGame = do
           , _index = 0
           , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
           }
-  do hSetBuffering stdin NoBuffering
+  do 
+     hSetBuffering stdin NoBuffering
      hSetEcho stdin False
+     clearScreen
+     putStrLn "\ESC[?25l" -- hide cursor
+     -- enable mouse capturing mode
      putStrLn "\ESC[?1000h"
      putStrLn "\ESC[?1015h"
      putStrLn "\ESC[?1006h"
      gameLoop gameState `finally` do
+       putStrLn "\ESC[?25h" -- show cursor
+       -- disable mouse capturing mode
        putStrLn "\ESC[?1006l"
        putStrLn "\ESC[?1015l"
        putStrLn "\ESC[?1000l"
 
---  putStrLn "\ESC[?1000l"
---  putStrLn "\ESC[?1000l"
---     putStrLn "\ESC[?1015h"
 gameLoop :: GameState -> IO ()
 gameLoop gs = do
-  moveCursorUp gs
+  moveCursorToOrigin
   render gs
   key <- getKey
   when (key /= "\ESC") $ do
@@ -83,6 +85,11 @@ gameLoop gs = do
             "\ESC[6~" -> step gs A.NextLevel
             "d"       -> step gs A.Debug
             _         -> dispatchOther gs key
+    -- this is to avoid artifacts from another level rendered  
+    case key of
+      "\ESC[5~" -> clearScreen
+      "\ESC[6~" -> clearScreen
+      _ -> return ()
     gameLoop gs1
   where
     dispatchOther :: GameState -> String -> GameState
@@ -91,7 +98,7 @@ gameLoop gs = do
         click <- extractMouseClick key
         action <- interpretClick gs click
         return $ step gs action
-                                          -- gs & levelState . message .~ T.pack (show c)
+
     extractMouseClick :: String -> Maybe (Point, Bool)
     extractMouseClick key = do
       rest <- stripPrefix "\ESC[<0;" key
@@ -101,16 +108,11 @@ gameLoop gs = do
         [Just x, Just y] -> Just (Point (y - 1) ((x - 1) `div` 2), lbmDown)
         _                -> Nothing
 
---  moveCursorUp gs
-moveCursorUp :: GameState -> IO ()
-moveCursorUp _gs = do
-  putStr "\ESC[2J"
-  putStr "\ESC[0;0H"
-  --  let hs = gs ^. holes
-  --  let bs = gs ^. boxes
-  --  let isc = gs ^. isComplete
-  --  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc
-  --  forM_ [0 .. gs ^. height + 21] $ \_ -> putStr "\ESC[A"
+clearScreen :: IO ()
+clearScreen = putStrLn "\ESC[2J"
+
+moveCursorToOrigin :: IO ()
+moveCursorToOrigin = putStrLn "\ESC[0;0H"
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""

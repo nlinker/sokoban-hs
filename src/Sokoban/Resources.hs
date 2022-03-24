@@ -32,11 +32,6 @@ microban :: T.Text
 microban =
   T.pack
     [str|
-#####
-#@$.#
-#####
-; 0
-
 ####
 # .#
 #  ###
