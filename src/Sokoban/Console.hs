@@ -142,7 +142,7 @@ render gs = do
   let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
   forM_ points $ \p -> do
     let Point i j = p
-    let (char, color) = renderCell $ (cs ! i) ! j
+    let (char, color) = getCellSkin $ (cs ! i) ! j
     colorStr color False $
       if j /= 0
         then " " ++ [char]
@@ -160,8 +160,8 @@ render gs = do
       putStr str
       setSGR []
       putStr ""
-    renderCell :: Cell -> (Char, Color)
-    renderCell c =
+    getCellSkin :: Cell -> (Char, Color)
+    getCellSkin c =
       case c of
         (Worker d) ->
           case d of
