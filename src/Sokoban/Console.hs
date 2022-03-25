@@ -30,8 +30,32 @@ import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
 
 runConsoleGame :: IO ()
-runConsoleGame = do
-  args <- getArgs
+runConsoleGame =
+  do args <- getArgs
+     gameState <- buildGameState args
+     do setupScreen
+        gameLoop gameState
+     `finally` destroyScreen
+  where
+    setupScreen = do
+      hSetBuffering stdin NoBuffering
+      hSetEcho stdin False
+      clearScreen
+        -- hide cursor
+      putStrLn "\ESC[?25l"
+       -- enable mouse capturing mode
+      putStrLn "\ESC[?1000h"
+      putStrLn "\ESC[?1015h"
+      putStrLn "\ESC[?1006h"
+    destroyScreen = do
+      putStrLn "\ESC[?25h" -- show cursor
+       -- disable mouse capturing mode
+      putStrLn "\ESC[?1006l"
+      putStrLn "\ESC[?1015l"
+      putStrLn "\ESC[?1000l"
+
+buildGameState :: [String] -> IO GameState
+buildGameState args = do
   levelCollection <-
     if null args
       then return microbanCollection
@@ -44,26 +68,12 @@ runConsoleGame = do
           LevelCollection
             {_title = T.pack fileName, _description = "", _email = "", _url = "", _copyright = "", _levels = levels}
   -- now we know, that the collection contains at least 1 valid level
-  let gameState =
-        GameState
-          { _collection = levelCollection
-          , _index = 0
-          , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
-          }
-  do hSetBuffering stdin NoBuffering
-     hSetEcho stdin False
-     clearScreen
-     putStrLn "\ESC[?25l" -- hide cursor
-     -- enable mouse capturing mode
-     putStrLn "\ESC[?1000h"
-     putStrLn "\ESC[?1015h"
-     putStrLn "\ESC[?1006h"
-     gameLoop gameState `finally` do
-       putStrLn "\ESC[?25h" -- show cursor
-       -- disable mouse capturing mode
-       putStrLn "\ESC[?1006l"
-       putStrLn "\ESC[?1015l"
-       putStrLn "\ESC[?1000l"
+  return $
+    GameState
+      { _collection = levelCollection
+      , _index = 0
+      , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
+      }
 
 gameLoop :: GameState -> IO ()
 gameLoop gs = do
@@ -83,17 +93,16 @@ gameLoop gs = do
             "\ESC[5~" -> step gs A.PrevLevel
             "\ESC[6~" -> step gs A.NextLevel
             "d"       -> step gs A.Debug
-            _         -> dispatchOther gs key
-    -- this is to avoid artifacts from another level rendered
+            _         -> dispatchMouse gs key
+    -- this is to avoid artifacts from rendering another level or debug
     case key of
-      "\ESC[5~" -> clearScreen
-      "\ESC[6~" -> clearScreen
-      "\"d"     -> clearScreen
-      _         -> return ()
+      k
+        | k `elem` ["\ESC[5~", "\ESC[6~", "d", "r"] -> clearScreen
+      _ -> return ()
     gameLoop gs1
   where
-    dispatchOther :: GameState -> String -> GameState
-    dispatchOther gs key =
+    dispatchMouse :: GameState -> String -> GameState
+    dispatchMouse gs key =
       fromMaybe gs $ do
         click <- extractMouseClick key
         action <- interpretClick gs click
