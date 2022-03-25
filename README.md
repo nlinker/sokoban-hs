@@ -45,7 +45,7 @@ http://sokobano.de/wiki/index.php?title=Solver
 - [Simple XLib program to highlight the cursor position](https://github.com/arp242/find-cursor)
 - [Handling Control-C in Haskell](https://neilmitchell.blogspot.com/2015/05/handling-control-c-in-haskell.html?m=1)
 
-- Unicode symbols to try for walls, holes, boxes and worker:
+- Unicode symbols to try for walls, goals, boxes and worker:
 
 ```
 ⬛ ■ ◼ ◾ ▪ □ ⬚ ▫ ◻ ❎ ⬛ ⬜ ▢ ▣ ◽ ❑ ❒ ❏ ❐ ▩ ▦ ▧ ▨ ⊞ ⊡ ☒

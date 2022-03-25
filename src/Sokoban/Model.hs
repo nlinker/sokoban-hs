@@ -55,7 +55,7 @@ data LevelState =
     , _width      :: !Int
     , _worker     :: !Point
     , _boxes      :: S.HashSet Point
-    , _holes      :: S.HashSet Point
+    , _goals      :: S.HashSet Point
     , _isComplete :: !Bool
     , _undoStack  :: ![Diff]
     , _undoIndex  :: !Int
@@ -107,10 +107,10 @@ interpretClick gameState click = evalState evalClick gameState
       return $
         case cell of
           Worker _       -> Nothing
-          WorkerOnHole _ -> Nothing
-          Hole           -> Nothing
+          WorkerOnGoal _ -> Nothing
+          Goal           -> Nothing
           Box            -> Nothing
-          BoxOnHole      -> Nothing
+          BoxOnGoal      -> Nothing
           Empty          -> Nothing
           Wall           -> Nothing
 
@@ -133,7 +133,7 @@ runStep action = do
     _         -> return ()
     -- now compare the sets and check the game completion
   ls <- use levelState
-  if ls ^. holes == ls ^. boxes
+  if ls ^. goals == ls ^. boxes
     then do
       levelState . isComplete .= True
       levelState . message .= "Level complete!"
@@ -157,7 +157,7 @@ restartLevel = do
     Just (w, b, h) -> do
       levelState . worker .= w
       levelState . boxes .= b
-      levelState . holes .= h
+      levelState . goals .= h
       levelState . cells .= originCells
       levelState . undoStack .= []
       levelState . undoIndex .= -1
@@ -206,7 +206,7 @@ undoMove = do
       Just (w, b, h) -> do
         levelState . worker .= w
         levelState . boxes .= b
-        levelState . holes .= h
+        levelState . goals .= h
 
 moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
 moveWorker d redoing = do
@@ -220,7 +220,7 @@ moveWorker d redoing = do
     c1 <- getCell point1
     c2 <- getCell point2
     let c0 = directWorker d c0'
-    -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnHole cell
+    -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnGoal cell
     let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
     case moveStatus of
       Just True
@@ -267,7 +267,7 @@ directWorker :: Direction -> Cell -> Cell
 directWorker d cw =
   case cw of
     Worker _       -> Worker d
-    WorkerOnHole _ -> WorkerOnHole d
+    WorkerOnGoal _ -> WorkerOnGoal d
     cell           -> cell
 
 ---------------------------------------------------------------------------------------------
@@ -280,7 +280,7 @@ initial level = do
   let cells = V.fromList $ V.fromList <$> levelCells
   case extractWBH cells of
     Nothing -> Nothing
-    Just (worker, boxes, holes) ->
+    Just (worker, boxes, goals) ->
       return $
       LevelState
         { _id = level ^. L.id
@@ -290,7 +290,7 @@ initial level = do
         , _width = n
         , _worker = worker
         , _boxes = boxes
-        , _holes = holes
+        , _goals = goals
         , _isComplete = False
         , _undoStack = []
         , _undoIndex = -1
@@ -298,15 +298,15 @@ initial level = do
         , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn"
         }
 
--- extract worker, boxes and holes, needed to be run after start, restart or undo
+-- extract worker, boxes and goals, needed to be run after start, restart or undo
 extractWBH :: MatrixCell -> Maybe (Point, S.HashSet Point, S.HashSet Point)
 extractWBH xs =
-  let (workers, boxes, holes) = execState extract ([], [], [])
+  let (workers, boxes, goals) = execState extract ([], [], [])
       workersCount = length workers
       boxesCount = length boxes
-      holesCount = length holes
-   in if workersCount == 1 && boxesCount > 0 && boxesCount == holesCount
-        then Just (head workers, S.fromList boxes, S.fromList holes)
+      goalsCount = length goals
+   in if workersCount == 1 && boxesCount > 0 && boxesCount == goalsCount
+        then Just (head workers, S.fromList boxes, S.fromList goals)
         else Nothing
   where
     extract = do
@@ -317,52 +317,52 @@ extractWBH xs =
           let x = (xs ! i) ! j
           when (isWorker x) $ _1 %= (Point i j :)
           when (isBox x) $ _2 %= (Point i j :)
-          when (isHole x) $ _3 %= (Point i j :)
+          when (isGoal x) $ _3 %= (Point i j :)
 
 isWorker :: Cell -> Bool
 isWorker c =
   case c of
     (Worker _)       -> True
-    (WorkerOnHole _) -> True
+    (WorkerOnGoal _) -> True
     _                -> False
 
 isBox :: Cell -> Bool
 isBox c =
   case c of
     Box       -> True
-    BoxOnHole -> True
+    BoxOnGoal -> True
     _         -> False
 
-isEmptyOrHole :: Cell -> Bool
-isEmptyOrHole c =
+isEmptyOrGoal :: Cell -> Bool
+isEmptyOrGoal c =
   case c of
     Empty -> True
-    Hole  -> True
+    Goal  -> True
     _     -> False
 
-isHole :: Cell -> Bool
-isHole c =
+isGoal :: Cell -> Bool
+isGoal c =
   case c of
-    Hole           -> True
-    BoxOnHole      -> True
-    WorkerOnHole _ -> True
+    Goal           -> True
+    BoxOnGoal      -> True
+    WorkerOnGoal _ -> True
     _              -> False
 
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =
   case triple of
     (Worker d, Box, Empty)             -> ((Empty, Worker d, Box), Just True)
-    (Worker d, Box, Hole)              -> ((Empty, Worker d, BoxOnHole), Just True)
-    (Worker d, BoxOnHole, Empty)       -> ((Empty, WorkerOnHole d, Box), Just True)
-    (Worker d, BoxOnHole, Hole)        -> ((Empty, WorkerOnHole d, BoxOnHole), Just True)
-    (WorkerOnHole d, Box, Empty)       -> ((Hole, Worker d, Box), Just True)
-    (WorkerOnHole d, Box, Hole)        -> ((Hole, Worker d, BoxOnHole), Just True)
-    (WorkerOnHole d, BoxOnHole, Empty) -> ((Hole, WorkerOnHole d, Box), Just True)
-    (WorkerOnHole d, BoxOnHole, Hole)  -> ((Hole, WorkerOnHole d, BoxOnHole), Just True)
+    (Worker d, Box, Goal)              -> ((Empty, Worker d, BoxOnGoal), Just True)
+    (Worker d, BoxOnGoal, Empty)       -> ((Empty, WorkerOnGoal d, Box), Just True)
+    (Worker d, BoxOnGoal, Goal)        -> ((Empty, WorkerOnGoal d, BoxOnGoal), Just True)
+    (WorkerOnGoal d, Box, Empty)       -> ((Goal, Worker d, Box), Just True)
+    (WorkerOnGoal d, Box, Goal)        -> ((Goal, Worker d, BoxOnGoal), Just True)
+    (WorkerOnGoal d, BoxOnGoal, Empty) -> ((Goal, WorkerOnGoal d, Box), Just True)
+    (WorkerOnGoal d, BoxOnGoal, Goal)  -> ((Goal, WorkerOnGoal d, BoxOnGoal), Just True)
     (Worker d, Empty, c3)              -> ((Empty, Worker d, c3), Just False)
-    (Worker d, Hole, c3)               -> ((Empty, WorkerOnHole d, c3), Just False)
-    (WorkerOnHole d, Empty, c3)        -> ((Hole, Worker d, c3), Just False)
-    (WorkerOnHole d, Hole, c3)         -> ((Hole, WorkerOnHole d, c3), Just False)
+    (Worker d, Goal, c3)               -> ((Empty, WorkerOnGoal d, c3), Just False)
+    (WorkerOnGoal d, Empty, c3)        -> ((Goal, Worker d, c3), Just False)
+    (WorkerOnGoal d, Goal, c3)         -> ((Goal, WorkerOnGoal d, c3), Just False)
     _                                  -> (triple, Nothing)
 
 -- We use screen (not Decartes) coordinates (i, j).

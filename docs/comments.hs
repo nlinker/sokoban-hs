@@ -2,7 +2,7 @@
 
 -- debug example
 
---  let hs = gs ^. holes
+--  let hs = gs ^. goals
 --  let bs = gs ^. boxes
 --  let isc = gs ^. isComplete
 --  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc
@@ -11,16 +11,16 @@
 
 
 {-
-import Sokoban.Model       (GameState, Point(..), cells, height, initial, name, step, width, holes, boxes, isComplete, extractWBH)
+import Sokoban.Model       (GameState, Point(..), cells, height, initial, name, step, width, goals, boxes, isComplete, extractWBH)
 import Sokoban.Parser      (parseLevel, rawLevel, rawLevelSimple)
 import qualified Data.Vector   as V
 
 c0 = V.fromList $ V.fromList <$>
   [ [Empty, Empty, Wall, Wall, Wall, Wall, Wall]
-  , [Empty, Wall, Wall, Empty, BoxOnHole, Empty, Wall]
-  , [Empty, Wall, Empty, WorkerOnHole L, Empty, Empty, Wall]
-  , [Wall, Wall, Empty, Wall, Hole, Hole, Wall]
-  , [Wall, Empty, Empty, Box, Hole, Empty, Wall]
+  , [Empty, Wall, Wall, Empty, BoxOnGoal, Empty, Wall]
+  , [Empty, Wall, Empty, WorkerOnGoal L, Empty, Empty, Wall]
+  , [Wall, Wall, Empty, Wall, Goal, Goal, Wall]
+  , [Wall, Empty, Empty, Box, Goal, Empty, Wall]
   , [Wall, Empty, Box, Box, Empty, Box, Wall]
   , [Wall, Wall, Wall, Empty, Empty, Empty, Wall]
   , [Empty, Empty, Wall, Wall, Wall, Wall, Wall]
@@ -50,7 +50,7 @@ getWorkerDirection :: Cell -> Direction
 getWorkerDirection c =
     case c of
         Worker d       -> d
-        WorkerOnHole d -> d
+        WorkerOnGoal d -> d
         _              -> D
 
 -- debug output for undoStack

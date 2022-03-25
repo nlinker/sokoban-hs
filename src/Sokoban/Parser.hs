@@ -34,12 +34,12 @@ parseCell :: Char -> Maybe Cell
 parseCell c =
   case c of
     '@' -> Just (Worker D)
-    '+' -> Just (WorkerOnHole D)
+    '+' -> Just (WorkerOnGoal D)
     '#' -> Just Wall
     ' ' -> Just Empty
-    '.' -> Just Hole
+    '.' -> Just Goal
     '$' -> Just Box
-    '*' -> Just BoxOnHole
+    '*' -> Just BoxOnGoal
     _   -> Nothing
 
 buildDescription :: [String] -> T.Text

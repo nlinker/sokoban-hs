@@ -15,10 +15,10 @@ data Direction
 
 data Cell
   = Worker Direction
-  | WorkerOnHole Direction
-  | Hole
+  | WorkerOnGoal Direction
+  | Goal
   | Box
-  | BoxOnHole
+  | BoxOnGoal
   | Empty
   | Wall
   deriving (Eq, Show)

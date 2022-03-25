@@ -50,8 +50,7 @@ runConsoleGame = do
           , _index = 0
           , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
           }
-  do 
-     hSetBuffering stdin NoBuffering
+  do hSetBuffering stdin NoBuffering
      hSetEcho stdin False
      clearScreen
      putStrLn "\ESC[?25l" -- hide cursor
@@ -85,11 +84,12 @@ gameLoop gs = do
             "\ESC[6~" -> step gs A.NextLevel
             "d"       -> step gs A.Debug
             _         -> dispatchOther gs key
-    -- this is to avoid artifacts from another level rendered  
+    -- this is to avoid artifacts from another level rendered
     case key of
       "\ESC[5~" -> clearScreen
       "\ESC[6~" -> clearScreen
-      _ -> return ()
+      "\"d"     -> clearScreen
+      _         -> return ()
     gameLoop gs1
   where
     dispatchOther :: GameState -> String -> GameState
@@ -98,7 +98,6 @@ gameLoop gs = do
         click <- extractMouseClick key
         action <- interpretClick gs click
         return $ step gs action
-
     extractMouseClick :: String -> Maybe (Point, Bool)
     extractMouseClick key = do
       rest <- stripPrefix "\ESC[<0;" key
@@ -161,7 +160,7 @@ render gs = do
             D -> ('◓', Green)
             L -> ('◑', Green)
             R -> ('◐', Green)
-        (WorkerOnHole d) ->
+        (WorkerOnGoal d) ->
           case d of
             U -> ('◒', Red)
             D -> ('◓', Red)
@@ -169,6 +168,6 @@ render gs = do
             R -> ('◐', Red)
         Wall -> ('▩', Blue)
         Empty -> (' ', White)
-        Hole -> ('⁘', Red)
+        Goal -> ('⁘', Red)
         Box -> ('▩', Yellow)
-        BoxOnHole -> ('▩', Red)
+        BoxOnGoal -> ('▩', Red)
