@@ -10,9 +10,11 @@
 
 module Sokoban.Model where
 
-import Prelude hiding (Left, Right)
+import           Prelude hiding (Left, Right, id)
+import qualified Prelude as P
 
-import Control.Lens        (ix, use, (%=), (&), (+~), (.=), (.~), (^.), _1, _2, _3)
+import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+~), (.=), (.~), (<>=), (^.), _1, _2,
+                            _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, unless, when)
 import Control.Monad.State (MonadState, evalState, execState)
@@ -21,10 +23,11 @@ import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, levels)
 
-import qualified Data.HashSet           as S
-import qualified Data.Text              as T
-import qualified Data.Vector            as V
-import qualified Sokoban.Level          as L (cells, height, id, width)
+import qualified Data.HashSet  as S
+import qualified Data.Text     as T
+import qualified Data.Vector   as V
+import qualified Sokoban.Level as L (cells, height, id, width)
+import qualified Text.Builder  as T
 
 data Point =
   Point Int Int
@@ -397,3 +400,34 @@ updateCell p cell = do
   --   in let row = V.modify (\v -> W.write v j cell) (mtx ! i)
   --       in V.modify (\vv -> W.write vv i row) mtx
   when (0 <= i && i < m && 0 <= j && j < n) $ levelState . cells .= (cs & ix i . ix j .~ cell)
+
+showState :: GameState -> T.Text
+showState gs =
+  T.run $ flip execState (T.string "") $ do
+    let ls = gs ^. levelState
+    let cs = ls ^. cells
+    let m = ls ^. height
+    let n = ls ^. width
+    let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
+    forM_ points $ \p -> do
+      let Point i j = p
+      let ch = getCellBuilder $ (cs ! i) ! j
+      this <>=
+        if j /= 0
+          then T.char ' ' <> ch
+          else ch
+      when (j == n - 1) $ this <>= T.char '\n'
+    this <>= T.text "; " <> T.text (ls ^. id) <> T.char '\n'
+  where
+    this :: Lens' a a
+    this = lens P.id (\_ v -> v)
+    getCellBuilder :: Cell -> T.Builder
+    getCellBuilder c =
+      case c of
+        Worker _       -> T.char '@'
+        WorkerOnGoal _ -> T.char '+'
+        Goal           -> T.char '.'
+        Box            -> T.char '$'
+        BoxOnGoal      -> T.char '*'
+        Empty          -> T.char ' '
+        Wall           -> T.char '#'

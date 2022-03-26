@@ -1,31 +1,45 @@
 name: sokoban
 version: 0.1.0
+author: Nick Linker <nlinker@gmail.com>
+maintainer: Nick Linker <nlinker@gmail.com>
+
 # -ddump-splices to see TH generation
 # -ddump-ds to desugar
 ghc-options: -threaded -Wall -fno-warn-name-shadowing
+
+github: nlinker/sokoban-hs
+
+library:
+  source-dirs:
+    - src
+  exposed-modules:
+    - Sokoban.Console
+    - Sokoban.Level
+    - Sokoban.Model
+    - Sokoban.Parser
+    - Sokoban.Resources
+    - Helper
+  other-modules:
+    - Paths_sokoban
 
 executables:
   sokoban:
     main: Main.hs
     source-dirs:
-      - app
+      - exe
     dependencies:
       - sokoban
 
-library:
-  source-dirs:
-    - src
-  other-modules:
-    - Paths_sokoban
-
 tests:
   unit:
-    main: UnitTests.hs
+    main: Spec.hs
     source-dirs:
       - test
     dependencies:
       - sokoban
       - hspec
+      - QuickCheck
+      - quickcheck-instances
 
 dependencies:
     - ansi-terminal
@@ -40,6 +54,7 @@ dependencies:
     - template-haskell
     - transformers
     - text
+    - text-builder
     - unordered-containers
     - word8
     - vector

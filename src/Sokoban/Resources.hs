@@ -10,6 +10,21 @@ import Sokoban.Parser (parseLevels)
 
 import qualified Data.Text as T
 
+rawLevel :: String
+rawLevel =
+  [str|
+      # # # # #
+    # #   .   #
+    #   .   $ #
+  # # $ # . . #
+  # @ $   *   #
+  #   $       #
+  # # #       #
+      # # # # #
+  ; The maze
+; number 1
+|]
+
 microbanCollection :: LevelCollection
 microbanCollection =
   LevelCollection

@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
@@ -9,7 +8,6 @@ import Data.Char       (isSpace)
 import Data.List       (find, partition)
 import Data.List.Extra (dropEnd)
 import Data.Maybe      (fromMaybe, isJust, listToMaybe)
-import Helper          (str)
 import Sokoban.Level   (Cell(..), Direction(..), Level(..))
 
 import qualified Data.Text as T
@@ -96,28 +94,3 @@ splitWith pred (x:xs)
      in first : splitWith pred rest
   | otherwise = splitWith pred xs
 splitWith _pred [] = []
-
-rawLevel :: String
-rawLevel =
-  [str|
-      # # # # #
-    # #   .   #
-    #   .   $ #
-  # # $ # . . #
-  # @ $   *   #
-  #   $       #
-  # # #       #
-      # # # # #
-  ; The maze
-; number 1
-|]
-
-rawDefaultCollection :: String
-rawDefaultCollection =
-  [str|
-  # # # # # #
-  # @ $   . #
-  # # # # # #
-  ; Simplest maze ever
-|]
-
