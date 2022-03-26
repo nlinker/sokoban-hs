@@ -27,7 +27,7 @@ import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Vector   as V
 import qualified Sokoban.Level as L (cells, height, id, width)
-import qualified Text.Builder  as T
+import qualified Text.Builder  as TB
 
 data Point =
   Point Int Int
@@ -94,34 +94,39 @@ data Action
   | Debug
   deriving (Eq, Show)
 
-interpretClick :: GameState -> (Point, Bool) -> Maybe Action
+interpretClick :: GameState -> Point -> Maybe Action
 interpretClick gameState click = evalState evalClick gameState
   where
     evalClick :: MonadState GameState m => m (Maybe Action)
     evalClick = do
-      let (p, _) = click
-      _clks <-
-        (\cs ->
-           if p `elem` cs
-             then filter (== p) cs
-             else p : cs) <$>
-        use (levelState . clicks)
+      let p = click
       cell <- getCell p
       return $
         case cell of
-          Worker _       -> Nothing
-          WorkerOnGoal _ -> Nothing
-          Goal           -> Nothing
-          Box            -> Nothing
-          BoxOnGoal      -> Nothing
-          Empty          -> Nothing
+          Worker _       -> Just $ MoveWorker p
+          WorkerOnGoal _ -> Just $ MoveWorker p
+          Goal           -> Just $ MoveWorker p
+          Box            -> Just $ MoveWorker p
+          BoxOnGoal      -> Just $ MoveWorker p
+          Empty          -> Just $ MoveWorker p
           Wall           -> Nothing
 
+--      _clks <-
+--        (\cs ->
+--           if p `elem` cs
+--             then filter (== p) cs
+--             else p : cs) <$>
+--        use (levelState . clicks)
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
+  levelState . message %=
+    (\msg ->
+       let nm = T.length msg
+           msg1 = "action = " <> show action
+        in T.pack (msg1 <> replicate (nm - length msg1) ' '))
   case action of
     Up        -> moveWorker (toDirection action) False
     Down      -> moveWorker (toDirection action) False
@@ -403,7 +408,7 @@ updateCell p cell = do
 
 showState :: GameState -> T.Text
 showState gs =
-  T.run $ flip execState (T.string "") $ do
+  TB.run $ flip execState mempty $ do
     let ls = gs ^. levelState
     let cs = ls ^. cells
     let m = ls ^. height
@@ -414,20 +419,20 @@ showState gs =
       let ch = getCellBuilder $ (cs ! i) ! j
       this <>=
         if j /= 0
-          then T.char ' ' <> ch
+          then TB.char ' ' <> ch
           else ch
-      when (j == n - 1) $ this <>= T.char '\n'
-    this <>= T.text "; " <> T.text (ls ^. id) <> T.char '\n'
+      when (j == n - 1) $ this <>= TB.char '\n'
+    this <>= TB.text "; " <> TB.text (ls ^. id) <> TB.char '\n'
   where
     this :: Lens' a a
     this = lens P.id (\_ v -> v)
-    getCellBuilder :: Cell -> T.Builder
+    getCellBuilder :: Cell -> TB.Builder
     getCellBuilder c =
       case c of
-        Worker _       -> T.char '@'
-        WorkerOnGoal _ -> T.char '+'
-        Goal           -> T.char '.'
-        Box            -> T.char '$'
-        BoxOnGoal      -> T.char '*'
-        Empty          -> T.char ' '
-        Wall           -> T.char '#'
+        Worker _       -> TB.char '@'
+        WorkerOnGoal _ -> TB.char '+'
+        Goal           -> TB.char '.'
+        Box            -> TB.char '$'
+        BoxOnGoal      -> TB.char '*'
+        Empty          -> TB.char ' '
+        Wall           -> TB.char '#'

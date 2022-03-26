@@ -8,8 +8,8 @@ module Sokoban.Console where
 import Prelude hiding (id)
 
 import Control.Exception   (finally)
-import Control.Lens        ((^.))
-import Control.Monad       (forM_, when)
+import Control.Lens        ((^.), (.~), (&))
+import Control.Monad       (forM_, when, guard)
 import Data.Char           (isDigit)
 import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
@@ -28,6 +28,7 @@ import Text.Read           (readMaybe)
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
+import Debug.Trace (traceM)
 
 runConsoleGame :: IO ()
 runConsoleGame =
@@ -93,7 +94,7 @@ gameLoop gs = do
             "\ESC[5~" -> step gs A.PrevLevel
             "\ESC[6~" -> step gs A.NextLevel
             "d"       -> step gs A.Debug
-            _         -> dispatchMouse gs key
+            _         -> stepWithMouse gs key
     -- this is to avoid artifacts from rendering another level or debug
     case key of
       k
@@ -101,19 +102,20 @@ gameLoop gs = do
       _ -> return ()
     gameLoop gs1
   where
-    dispatchMouse :: GameState -> String -> GameState
-    dispatchMouse gs key =
+    stepWithMouse :: GameState -> String -> GameState
+    stepWithMouse gs key =
       fromMaybe gs $ do
         click <- extractMouseClick key
         action <- interpretClick gs click
         return $ step gs action
-    extractMouseClick :: String -> Maybe (Point, Bool)
+    extractMouseClick :: String -> Maybe Point
     extractMouseClick key = do
       rest <- stripPrefix "\ESC[<0;" key
-      -- expected input in the form "\ESC[<0;2;3m" or "\ESC[<0;2;3M"
-      let lbmDown = "M" `isSuffixOf` rest
+      -- expected input in the form "\ESC[<0;2;3M" or "\ESC[<0;2;3m" ("m" is release)
+      -- TODO (y - 2) is bad, find some way to calculate the offset
+      guard $ "m" `isSuffixOf` rest
       case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
-        [Just x, Just y] -> Just (Point (y - 1) ((x - 1) `div` 2), lbmDown)
+        [Just x, Just y] -> Just (Point (y - 2) ((x - 1) `div` 2))
         _                -> Nothing
 
 clearScreen :: IO ()

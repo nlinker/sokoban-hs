@@ -26,7 +26,7 @@ spec =
   describe "mouse click interpretation" $ do
     it "worker move" $ do
       render gs
-      interpretClick gs (Point 1 1, False)  `shouldBe` (Just $ A.MoveWorker $ Point 1 1)
+      interpretClick gs (Point 1 1)  `shouldBe` (Just $ A.MoveWorker $ Point 1 1)
 
     it "1 box move" $
       gs `shouldBe` gs
