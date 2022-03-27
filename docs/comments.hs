@@ -1,4 +1,10 @@
-
+{-
+  levelState . message %=
+    (\msg ->
+       let nm = T.length msg
+           msg1 = "action = " <> show action
+        in T.pack (msg1 <> replicate (nm - length msg1) ' '))
+-}
 
 -- debug example
 

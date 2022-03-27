@@ -17,7 +17,7 @@ import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+~), (.=), (.~), (
                             _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, unless, when)
-import Control.Monad.State (MonadState, evalState, execState)
+import Control.Monad.State (MonadState, execState)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
@@ -62,18 +62,27 @@ data LevelState =
     , _isComplete :: !Bool
     , _undoStack  :: ![Diff]
     , _undoIndex  :: !Int
-    , _clicks     :: ![Point]
     , _message    :: !T.Text
     }
   deriving (Eq, Show)
 
 makeLenses ''LevelState
 
+data ViewState =
+  ViewState
+    { _clicks       :: ![Point]
+    , _destinations :: ![Point]
+    }
+  deriving (Eq, Show)
+  
+makeLenses ''ViewState
+
 data GameState =
   GameState
     { _collection :: !LevelCollection
     , _index      :: !Int
     , _levelState :: !LevelState
+    , _viewState  :: !ViewState
     }
   deriving (Eq, Show)
 
@@ -94,39 +103,11 @@ data Action
   | Debug
   deriving (Eq, Show)
 
-interpretClick :: GameState -> Point -> Maybe Action
-interpretClick gameState click = evalState evalClick gameState
-  where
-    evalClick :: MonadState GameState m => m (Maybe Action)
-    evalClick = do
-      let p = click
-      cell <- getCell p
-      return $
-        case cell of
-          Worker _       -> Just $ MoveWorker p
-          WorkerOnGoal _ -> Just $ MoveWorker p
-          Goal           -> Just $ MoveWorker p
-          Box            -> Just $ MoveWorker p
-          BoxOnGoal      -> Just $ MoveWorker p
-          Empty          -> Just $ MoveWorker p
-          Wall           -> Nothing
-
---      _clks <-
---        (\cs ->
---           if p `elem` cs
---             then filter (== p) cs
---             else p : cs) <$>
---        use (levelState . clicks)
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
-  levelState . message %=
-    (\msg ->
-       let nm = T.length msg
-           msg1 = "action = " <> show action
-        in T.pack (msg1 <> replicate (nm - length msg1) ' '))
   case action of
     Up        -> moveWorker (toDirection action) False
     Down      -> moveWorker (toDirection action) False
@@ -144,7 +125,7 @@ runStep action = do
   if ls ^. goals == ls ^. boxes
     then do
       levelState . isComplete .= True
-      levelState . message .= "Level complete!"
+      levelState . message .= T.pack ("Level complete!" <> replicate 10 ' ')
     else levelState . isComplete .= False
   -- dumpState
 
@@ -176,7 +157,6 @@ switchLevel :: MonadState GameState m => Int -> m ()
 switchLevel di = do
   idx <- (+ di) <$> use index
   levels <- use (collection . levels)
-  levelState . message .= T.pack ("switchLevel: length levels = " <> show (length levels))
   let newIdx
         | idx < 0 = 0
         | idx > length levels - 1 = length levels - 1
@@ -303,7 +283,6 @@ initial level = do
         , _isComplete = False
         , _undoStack = []
         , _undoIndex = -1
-        , _clicks = []
         , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn"
         }
 

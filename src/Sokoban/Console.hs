@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
@@ -8,27 +9,27 @@ module Sokoban.Console where
 import Prelude hiding (id)
 
 import Control.Exception   (finally)
-import Control.Lens        ((^.), (.~), (&))
-import Control.Monad       (forM_, when, guard)
+import Control.Lens        (use, (&), (.=), (.~), (^.))
+import Control.Monad       (forM_, guard, when)
 import Data.Char           (isDigit)
 import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
-import Sokoban.Model       (GameState(..), Point(..), cells, height, id, initial, interpretClick,
-                            levelState, message, step, width)
+import Sokoban.Model       (GameState(..), Point(..), ViewState(..), cells, clicks, getCell, height,
+                            id, initial, isBox, levelState, message, step, viewState, width)
 import Sokoban.Parser      (parseLevels, splitWith)
-import Sokoban.Resources   (microbanCollection)
+import Sokoban.Resources   (yoshiroAutoCollection)
 import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..),
                             SGR(..), setSGR)
 import System.Environment  (getArgs)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.Read           (readMaybe)
 
-import qualified Data.Text     as T
-import qualified Data.Text.IO  as T
-import qualified Sokoban.Model as A (Action(..))
-import Debug.Trace (traceM)
+import           Control.Monad.State (MonadState, evalState, runState)
+import qualified Data.Text           as T
+import qualified Data.Text.IO        as T
+import qualified Sokoban.Model       as A (Action(..))
 
 runConsoleGame :: IO ()
 runConsoleGame =
@@ -59,7 +60,7 @@ buildGameState :: [String] -> IO GameState
 buildGameState args = do
   levelCollection <-
     if null args
-      then return microbanCollection
+      then return yoshiroAutoCollection -- default
       else do
         let fileName = head args
         levels0 <- fromMaybe (error $ "Cannot parse file " <> fileName) . parseLevels <$> T.readFile fileName
@@ -74,6 +75,7 @@ buildGameState args = do
       { _collection = levelCollection
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
+      , _viewState = ViewState [] []
       }
 
 gameLoop :: GameState -> IO ()
@@ -84,45 +86,99 @@ gameLoop gs = do
   when (key /= "\ESC") $ do
     let gs1 =
           case key of
-            "\ESC[A"  -> step gs A.Up
-            "\ESC[B"  -> step gs A.Down
-            "\ESC[C"  -> step gs A.Right
-            "\ESC[D"  -> step gs A.Left
-            "u"       -> step gs A.Undo
-            "i"       -> step gs A.Redo
-            "r"       -> step gs A.Restart
+            "\ESC[A" -> step gs A.Up
+            "\ESC[B" -> step gs A.Down
+            "\ESC[C" -> step gs A.Right
+            "\ESC[D" -> step gs A.Left
+            "u" -> step gs A.Undo
+            "i" -> step gs A.Redo
+            "r" -> step gs A.Restart
             "\ESC[5~" -> step gs A.PrevLevel
             "\ESC[6~" -> step gs A.NextLevel
-            "d"       -> step gs A.Debug
-            _         -> stepWithMouse gs key
+            "d" -> step gs A.Debug
+            _ ->
+              case runState (interpretClick key) gs of
+                (Just action, gs) -> step gs action
+                _                 -> gs
     -- this is to avoid artifacts from rendering another level or debug
     case key of
       k
         | k `elem` ["\ESC[5~", "\ESC[6~", "d", "r"] -> clearScreen
       _ -> return ()
     gameLoop gs1
+
+interpretClick :: MonadState GameState m => String -> m (Maybe A.Action)
+interpretClick key =
+  case extractMouseClick key of
+    Nothing -> return Nothing
+    Just (click, False) -> do
+      clickz <- (click :) <$> use (viewState . clicks)
+      cellz <- mapM getCell clickz
+      case cellz of
+        []       -> return Nothing
+        [c0]     -> dispatchClick1 clickz c0
+        [c1, c0] -> dispatchClick2 clickz c1 c0
+        _        -> return Nothing
+      where dispatchClick1 clickz c0 =
+              case c0 of
+                Goal -> do
+                  viewState . clicks .= [] -- reset tracking clicks
+                  return $ Just $ A.MoveWorker click
+                Empty -> do
+                  viewState . clicks .= [] -- reset tracking clicks
+                  return $ Just $ A.MoveWorker click
+                box
+                  | isBox box -> do
+                    viewState . clicks .= clickz
+                    return Nothing
+                _ -> do
+                  viewState . clicks .= [] -- reset tracking clicks
+                  return Nothing
+            dispatchClick2 clickz c1 c0 = do
+              case c1 of
+                Worker d       -> return ()
+                WorkerOnGoal d -> return ()
+                Goal           -> return ()
+                Box            -> return ()
+                BoxOnGoal      -> return ()
+                Empty          -> return ()
+                Wall           -> return ()
+              return Nothing
+
+stepWithMouse :: GameState -> [Point] -> String -> GameState
+stepWithMouse gs clicks key = evalState evalClick gs
   where
-    stepWithMouse :: GameState -> String -> GameState
-    stepWithMouse gs key =
-      fromMaybe gs $ do
-        click <- extractMouseClick key
-        action <- interpretClick gs click
-        return $ step gs action
-    extractMouseClick :: String -> Maybe Point
-    extractMouseClick key = do
-      rest <- stripPrefix "\ESC[<0;" key
-      -- expected input in the form "\ESC[<0;2;3M" or "\ESC[<0;2;3m" ("m" is release)
-      -- TODO (y - 2) is bad, find some way to calculate the offset
-      guard $ "m" `isSuffixOf` rest
-      case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
-        [Just x, Just y] -> Just (Point (y - 2) ((x - 1) `div` 2))
-        _                -> Nothing
+    evalClick :: MonadState GameState m => m GameState
+    evalClick = do
+      let click' = extractMouseClick key
+      undefined
+
+extractMouseClick :: String -> Maybe (Point, Bool)
+extractMouseClick key = do
+  rest <- stripPrefix "\ESC[<0;" key
+  -- expected input in the form "\ESC[<0;2;3M" or "\ESC[<0;2;3m" ("m" is button up)
+  let lbmDown = "M" `isSuffixOf` rest
+  case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
+    [Just x, Just y] -> Just (Point (y - 2) ((x - 1) `div` 2), lbmDown)
+    _                -> Nothing
+
+--interpretClick :: GameState -> Point -> Maybe A.Action
+--interpretClick gameState click = evalState evalClick gameState
+--  where
+--    evalClick :: MonadState GameState m => m (Maybe A.Action)
+--    evalClick = do
+--      cell <- getCell click
+showInMessage :: Show a => GameState -> a -> GameState
+showInMessage gs x =
+  let nm = T.length $ gs ^. levelState . message
+      msg1 = "action = " <> show x
+   in gs & levelState . message .~ T.pack (msg1 <> replicate (nm - length msg1) ' ')
 
 clearScreen :: IO ()
 clearScreen = putStrLn "\ESC[2J"
 
 moveCursorToOrigin :: IO ()
-moveCursorToOrigin = putStrLn "\ESC[0;0H"
+moveCursorToOrigin = putStrLn "\ESC[1;1H"
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""

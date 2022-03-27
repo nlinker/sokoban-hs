@@ -34,6 +34,7 @@ The aim is to build flexible testable model of the game, and make IO layer as th
 - http://www.sourcecode.se/sokoban/levels
 - https://sokoban-jd.blogspot.com/p/all-my-sokoban-collections.html
 - https://sokoban-game.com/packs
+- http://www.sneezingtiger.com/sokoban/levels.html
 
 ### Info on sokoban solvers
 
