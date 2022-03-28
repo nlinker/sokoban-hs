@@ -335,6 +335,9 @@ isGoal c =
     BoxOnGoal      -> True
     WorkerOnGoal _ -> True
     _              -> False
+    
+isWall :: Cell -> Bool
+isWall c = c == Wall
 
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =

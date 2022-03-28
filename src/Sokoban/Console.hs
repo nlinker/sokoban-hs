@@ -10,14 +10,15 @@ import Prelude hiding (id)
 
 import Control.Exception   (finally)
 import Control.Lens        (use, (&), (.=), (.~), (^.))
-import Control.Monad       (forM_, guard, when)
+import Control.Monad       (forM_, when)
 import Data.Char           (isDigit)
 import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
-import Sokoban.Model       (GameState(..), Point(..), ViewState(..), cells, clicks, getCell, height,
-                            id, initial, isBox, levelState, message, step, viewState, width)
+import Sokoban.Model       (GameState(..), Point(..), ViewState(..), cells, clicks, destinations,
+                            getCell, height, id, initial, isBox, isEmptyOrGoal, isWorker,
+                            levelState, levelState, message, step, viewState, width)
 import Sokoban.Parser      (parseLevels, splitWith)
 import Sokoban.Resources   (yoshiroAutoCollection)
 import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..),
@@ -26,7 +27,7 @@ import System.Environment  (getArgs)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.Read           (readMaybe)
 
-import           Control.Monad.State (MonadState, evalState, runState)
+import           Control.Monad.State (MonadState, runState)
 import qualified Data.Text           as T
 import qualified Data.Text.IO        as T
 import qualified Sokoban.Model       as A (Action(..))
@@ -99,7 +100,7 @@ gameLoop gs = do
             _ ->
               case runState (interpretClick key) gs of
                 (Just action, gs) -> step gs action
-                _                 -> gs
+                (Nothing, gs)     -> gs
     -- this is to avoid artifacts from rendering another level or debug
     case key of
       k
@@ -111,47 +112,48 @@ interpretClick :: MonadState GameState m => String -> m (Maybe A.Action)
 interpretClick key =
   case extractMouseClick key of
     Nothing -> return Nothing
+    Just (_, True) -> return Nothing
     Just (click, False) -> do
       clickz <- (click :) <$> use (viewState . clicks)
       cellz <- mapM getCell clickz
-      case cellz of
-        []       -> return Nothing
-        [c0]     -> dispatchClick1 clickz c0
-        [c1, c0] -> dispatchClick2 clickz c1 c0
-        _        -> return Nothing
-      where dispatchClick1 clickz c0 =
-              case c0 of
-                Goal -> do
-                  viewState . clicks .= [] -- reset tracking clicks
-                  return $ Just $ A.MoveWorker click
-                Empty -> do
-                  viewState . clicks .= [] -- reset tracking clicks
-                  return $ Just $ A.MoveWorker click
-                box
-                  | isBox box -> do
-                    viewState . clicks .= clickz
-                    return Nothing
-                _ -> do
-                  viewState . clicks .= [] -- reset tracking clicks
-                  return Nothing
-            dispatchClick2 clickz c1 c0 = do
-              case c1 of
-                Worker d       -> return ()
-                WorkerOnGoal d -> return ()
-                Goal           -> return ()
-                Box            -> return ()
-                BoxOnGoal      -> return ()
-                Empty          -> return ()
-                Wall           -> return ()
-              return Nothing
+      case (clickz, cellz) of
+        ([], []) -> return Nothing
+        ([p0], [c0])
+          | isEmptyOrGoal c0 -> do
+            viewState . clicks .= []
+            return $ Just $ A.MoveWorker p0
+          | isWorker c0 -> do
+            viewState . clicks .= [p0]
+            return Nothing
+          | isBox c0 -> do
+            viewState . clicks .= [p0]
+            return Nothing
+          | otherwise -> do
+            viewState . clicks .= []
+            return Nothing
+        ([p1, p0], [c1, c0])
+          | isWorker c0 && isDestination c1 -> do
+            viewState . clicks .= []
+            return $ Just $ A.MoveWorker p1
+          | isBox c0 && isDestination c1 -> do
+            viewState . clicks .= []
+            return $ Just $ A.MoveBoxes [p0] [p1]
+          | otherwise -> do
+            viewState . clicks .= [] -- reset tracking clicks
+            return Nothing
+        _ -> do
+          viewState . clicks .= [] -- reset tracking clicks
+          viewState . destinations .= []
+          return Nothing
 
-stepWithMouse :: GameState -> [Point] -> String -> GameState
-stepWithMouse gs clicks key = evalState evalClick gs
-  where
-    evalClick :: MonadState GameState m => m GameState
-    evalClick = do
-      let click' = extractMouseClick key
-      undefined
+isDestination :: Cell -> Bool
+isDestination c =
+  case c of
+    Worker _       -> True
+    WorkerOnGoal _ -> True
+    Goal           -> True
+    Empty          -> True
+    _              -> False
 
 extractMouseClick :: String -> Maybe (Point, Bool)
 extractMouseClick key = do
