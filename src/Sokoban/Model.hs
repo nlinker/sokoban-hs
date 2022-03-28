@@ -71,10 +71,10 @@ makeLenses ''LevelState
 data ViewState =
   ViewState
     { _clicks       :: ![Point]
-    , _destinations :: ![Point]
+    , _destinations :: S.HashSet Point
     }
   deriving (Eq, Show)
-  
+
 makeLenses ''ViewState
 
 data GameState =
@@ -335,7 +335,7 @@ isGoal c =
     BoxOnGoal      -> True
     WorkerOnGoal _ -> True
     _              -> False
-    
+
 isWall :: Cell -> Bool
 isWall c = c == Wall
 

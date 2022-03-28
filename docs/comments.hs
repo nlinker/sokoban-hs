@@ -1,4 +1,8 @@
 {-
+  case ... of
+    _ | trace (show $ T.pack (show $ extractMouseClick key)) False -> undefined
+    ...
+
   levelState . message %=
     (\msg ->
        let nm = T.length msg
