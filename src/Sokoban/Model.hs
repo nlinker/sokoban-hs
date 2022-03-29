@@ -23,15 +23,20 @@ import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, levels)
 
-import qualified Data.HashSet  as S
-import qualified Data.Text     as T
-import qualified Data.Vector   as V
-import qualified Sokoban.Level as L (cells, height, id, width)
-import qualified Text.Builder  as TB
+import qualified Data.HashMap.Strict as H
+import qualified Data.HashPSQ        as Q
+import qualified Data.HashSet        as S
+import qualified Data.Text           as T
+import qualified Data.Vector         as V
+import qualified Sokoban.Level       as L (cells, height, id, width)
+import qualified Text.Builder        as TB
 
 data Point =
   Point Int Int
   deriving (Eq, Show, Generic, Hashable)
+
+instance Ord Point where
+  (Point i1 j1) <= (Point i2 j2) = (i1 <= i2) || ((i1 < i2) && (j1 <= j2))
 
 makePrisms ''Point
 
@@ -103,23 +108,34 @@ data Action
   | Debug
   deriving (Eq, Show)
 
+data PathData =
+  PathData
+    { _frontier  :: Q.HashPSQ Point Int ()
+    , _cameFrom  :: H.HashMap Point (Maybe Point)
+    , _costSoFar :: H.HashMap Point Int
+    }
+  deriving (Eq, Show)
+
+makeLenses ''PathData
+
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
   case action of
-    Up        -> moveWorker (toDirection action) False
-    Down      -> moveWorker (toDirection action) False
-    Left      -> moveWorker (toDirection action) False
-    Right     -> moveWorker (toDirection action) False
-    Restart   -> restartLevel
-    Undo      -> undoMove
-    Redo      -> redoMove
-    PrevLevel -> switchLevel (negate 1)
-    NextLevel -> switchLevel (0 + 1)
-    Debug     -> dumpState
-    _         -> return ()
+    Up             -> moveWorker (toDirection action) False
+    Down           -> moveWorker (toDirection action) False
+    Left           -> moveWorker (toDirection action) False
+    Right          -> moveWorker (toDirection action) False
+    Restart        -> restartLevel
+    Undo           -> undoMove
+    Redo           -> redoMove
+    PrevLevel      -> switchLevel (negate 1)
+    NextLevel      -> switchLevel (0 + 1)
+    MoveWorker dst -> calculateAndMoveWorker dst
+    Debug          -> dumpState
+    _              -> return ()
     -- now compare the sets and check the game completion
   ls <- use levelState
   if ls ^. goals == ls ^. boxes
@@ -128,6 +144,12 @@ runStep action = do
       levelState . message .= T.pack ("Level complete!" <> replicate 10 ' ')
     else levelState . isComplete .= False
   -- dumpState
+
+calculateAndMoveWorker :: MonadState GameState m => Point -> m ()
+calculateAndMoveWorker dst = do
+  src <- use $ levelState . worker
+  pathData <- findPath src dst
+  levelState . message .= T.pack (show pathData)
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
@@ -418,3 +440,47 @@ showState gs =
         BoxOnGoal      -> TB.char '*'
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
+
+initPathData :: Point -> PathData
+initPathData src =
+  PathData {_frontier = Q.singleton src 0 (), _cameFrom = H.singleton src Nothing, _costSoFar = H.singleton src 0}
+
+--  case buildPath (pd1 ^. cameFrom) of
+--    Nothing   -> return Nothing
+--    Just path -> return $ Just path
+findPath :: MonadState GameState m => Point -> Point -> m PathData
+findPath src dst = do
+  let pd0 = initPathData src
+  findPathRec pd0
+  where
+    findPathRec :: MonadState GameState m => PathData -> m PathData
+    findPathRec pathData =
+      case Q.findMin (pathData ^. frontier) of
+        Nothing -> return pathData
+        Just (k, _, ())
+          | k == dst -> return pathData
+        Just (k, _, ()) -> do
+          let ns = map (moveDir k) [U, D, L, R]
+          ns2 <- mapM getCell ns
+          let neighbors = map fst $ filter (\(_, c) -> isEmptyOrGoal c) $ zip ns ns2
+          let currentCost = (pathData ^. costSoFar) H.! k
+          let pathDataNew =
+                flip execState pathData $ forM_ neighbors $ \np -> do
+                  let newCost = currentCost + 1
+                  csf <- use costSoFar
+                    -- if next not in cost_so_far or new_cost < cost_so_far[next]:
+                  when (not (H.member np csf) || newCost < csf H.! np) $ do
+                    costSoFar .= H.insert np newCost csf
+                    let priority = newCost + heuristic np dst
+                    frontier %= Q.insert np priority ()
+                    cameFrom %= H.insert np (Just k)
+          findPathRec pathDataNew
+
+buildPath :: H.HashMap Point (Maybe Point) -> Maybe [Point]
+buildPath = undefined
+
+heuristic :: Point -> Point -> Int
+heuristic next dst =
+  let Point i1 j1 = next
+      Point i2 j2 = dst
+   in abs (i1 - i2) + abs (j1 - j2)

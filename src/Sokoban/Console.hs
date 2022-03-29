@@ -31,7 +31,6 @@ import           Control.Monad.State (MonadState, runState)
 import qualified Data.HashSet        as S
 import qualified Data.Text           as T
 import qualified Data.Text.IO        as T
-import           Debug.Trace         (trace, traceShowM)
 import qualified Sokoban.Model       as A (Action(..))
 
 runConsoleGame :: IO ()

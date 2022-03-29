@@ -59,4 +59,5 @@ dependencies:
     - word8
     - vector
     - lens
+    - psqueues
 
