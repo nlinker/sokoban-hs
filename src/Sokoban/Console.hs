@@ -11,14 +11,16 @@ import Prelude hiding (id)
 import Control.Exception   (finally)
 import Control.Lens        (use, (&), (.=), (.~), (^.))
 import Control.Monad       (forM_, when)
+import Control.Monad.State (MonadState, evalState, execState, runState)
 import Data.Char           (isDigit)
 import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
 import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
-import Sokoban.Model       (GameState(..), Point(..), ViewState(..), cells, clicks, destinations,
-                            getCell, height, id, initial, isBox, isEmptyOrGoal, isWorker,
-                            levelState, levelState, message, step, viewState, width)
+import Sokoban.Model       (GameState(..), Point(..), ViewState(..), aStarFind, cells, clicks,
+                            destinations, getCell, height, id, initial, isBox, isEmptyOrGoal,
+                            isWorker, levelState, levelState, message, step, viewState, width,
+                            worker)
 import Sokoban.Parser      (parseLevels, splitWith)
 import Sokoban.Resources   (yoshiroAutoCollection)
 import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..),
@@ -27,11 +29,19 @@ import System.Environment  (getArgs)
 import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.Read           (readMaybe)
 
-import           Control.Monad.State (MonadState, runState)
-import qualified Data.HashSet        as S
-import qualified Data.Text           as T
-import qualified Data.Text.IO        as T
-import qualified Sokoban.Model       as A (Action(..))
+import qualified Data.HashSet  as S
+import qualified Data.Text     as T
+import qualified Data.Text.IO  as T
+import qualified Sokoban.Model as A (Action(..))
+
+runa :: IO ()
+runa = do
+  gs <- buildGameState []
+  let src = gs ^. levelState . worker
+  let dst = Point 2 1
+  let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+  let path = aStarFind src dst isAccessible
+  print path
 
 runConsoleGame :: IO ()
 runConsoleGame =

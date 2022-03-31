@@ -17,7 +17,7 @@ import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+~), (.=), (.~), (
                             _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, unless, when)
-import Control.Monad.State (MonadState, execState)
+import Control.Monad.State (MonadState, evalState, execState, gets)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
@@ -28,6 +28,7 @@ import qualified Data.HashPSQ        as Q
 import qualified Data.HashSet        as S
 import qualified Data.Text           as T
 import qualified Data.Vector         as V
+import           Debug.Trace         (traceShowM)
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
@@ -108,15 +109,15 @@ data Action
   | Debug
   deriving (Eq, Show)
 
-data PathData =
-  PathData
-    { _frontier  :: Q.HashPSQ Point Int ()
-    , _cameFrom  :: H.HashMap Point (Maybe Point)
-    , _costSoFar :: H.HashMap Point Int
+data Weight =
+  Weight
+    { _fScore :: Int
+    , _gScore :: Int
+    , _parent :: Point
     }
   deriving (Eq, Show)
 
-makeLenses ''PathData
+makeLenses ''Weight
 
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
@@ -148,8 +149,8 @@ runStep action = do
 calculateAndMoveWorker :: MonadState GameState m => Point -> m ()
 calculateAndMoveWorker dst = do
   src <- use $ levelState . worker
-  pathData <- findPath src dst
-  levelState . message .= T.pack (show pathData)
+  --  pathData <- aStarFind src dst
+  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")")
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
@@ -441,43 +442,74 @@ showState gs =
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
 
-initPathData :: Point -> PathData
-initPathData src =
-  PathData {_frontier = Q.singleton src 0 (), _cameFrom = H.singleton src Nothing, _costSoFar = H.singleton src 0}
+data AStar =
+  AStar
+    { _openList   :: Q.HashPSQ Point Int Weight
+    , _closedList :: H.HashMap Point Point
+    }
+  deriving (Eq, Show)
 
---  case buildPath (pd1 ^. cameFrom) of
---    Nothing   -> return Nothing
---    Just path -> return $ Just path
-findPath :: MonadState GameState m => Point -> Point -> m PathData
-findPath src dst = do
-  let pd0 = initPathData src
-  findPathRec pd0
+makeLenses ''AStar
+
+aStarInit :: Point -> AStar
+aStarInit src =
+  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
+      openList = Q.singleton src (weight ^. fScore) weight
+      closedList = H.empty :: H.HashMap Point Point
+   in AStar openList closedList
+
+aStarFind :: Point -> Point -> (Point -> Bool) -> [Point]
+aStarFind src dst isAccessible =
+  let astar = aStarInit src
+      path = evalState (aStarFindRec dst isAccessible) astar
+   in path
+
+aStarFindRec :: MonadState AStar m => Point -> (Point -> Bool) -> m [Point]
+aStarFindRec dst isAccessible = do
+  openList0 <- use openList
+  closedList0 <- use closedList
+  case Q.findMin openList0 of
+    Nothing -> gets $ backtrace dst <$> flip (^.) closedList
+    Just (p0, _, weight0)
+      | p0 == dst -> do
+        closedList %= H.insert p0 (weight0 ^. parent)
+        gets $ backtrace dst <$> flip (^.) closedList
+    Just (p0, _, weight0) -> do
+      openList %= Q.delete p0
+      closedList %= H.insert p0 (weight0 ^. parent)
+      let neighbors = filter (\p -> not (H.member p closedList0) && isAccessible p) $ map (moveDir p0) [U, D, L, R]
+      -- `k` is the current node, `fs` is f-score
+      forM_ neighbors $ \np -> do
+        let g1 = weight0 ^. gScore + fromEnum (np /= p0)
+        let f1 = g1 + heuristic np dst
+        let p1 = p0
+        let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
+        case Q.lookup np openList0 of
+          Just (_, w)
+              -- the neighbour can be reached with smaller cost - change priority
+              -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
+           -> when (g1 < (w ^. gScore)) $ openList .= Q.insert np f1 w1 openList0
+          Nothing
+            -- the neighbour is new
+           -> openList .= Q.insert np f1 w1 openList0
+      openList0 <- use openList
+      closedList0 <- use closedList
+      traceShowM (openList0, closedList0)
+      aStarFindRec dst isAccessible
+
+backtrace :: Point -> H.HashMap Point Point -> [Point]
+backtrace dst closedList =
+  let path = backtrace' dst []
+   in reverse path
   where
-    findPathRec :: MonadState GameState m => PathData -> m PathData
-    findPathRec pathData =
-      case Q.findMin (pathData ^. frontier) of
-        Nothing -> return pathData
-        Just (k, _, ())
-          | k == dst -> return pathData
-        Just (k, _, ()) -> do
-          let ns = map (moveDir k) [U, D, L, R]
-          ns2 <- mapM getCell ns
-          let neighbors = map fst $ filter (\(_, c) -> isEmptyOrGoal c) $ zip ns ns2
-          let currentCost = (pathData ^. costSoFar) H.! k
-          let pathDataNew =
-                flip execState pathData $ forM_ neighbors $ \np -> do
-                  let newCost = currentCost + 1
-                  csf <- use costSoFar
-                    -- if next not in cost_so_far or new_cost < cost_so_far[next]:
-                  when (not (H.member np csf) || newCost < csf H.! np) $ do
-                    costSoFar .= H.insert np newCost csf
-                    let priority = newCost + heuristic np dst
-                    frontier %= Q.insert np priority ()
-                    cameFrom %= H.insert np (Just k)
-          findPathRec pathDataNew
-
-buildPath :: H.HashMap Point (Maybe Point) -> Maybe [Point]
-buildPath = undefined
+    backtrace' current acc
+    -- we repeatedly lookup for the parent of the current node
+     =
+      case H.lookup current closedList of
+        Nothing -> acc
+        Just parent
+          | current == parent -> acc
+        Just parent -> backtrace' parent (parent : acc)
 
 heuristic :: Point -> Point -> Int
 heuristic next dst =
