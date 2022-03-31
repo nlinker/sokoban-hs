@@ -13,32 +13,20 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
-import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+~), (.=), (.~), (<>=), (^.), _1, _2,
-                            _3)
-import Control.Lens.TH     (makeLenses, makePrisms)
+import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
+import Control.Lens.TH     (makeLenses)
 import Control.Monad       (forM_, unless, when)
-import Control.Monad.State (MonadState, evalState, execState, get, gets)
-import Data.Hashable       (Hashable)
+import Control.Monad.State (MonadState, evalState, execState, get)
 import Data.Vector         (Vector, (!))
-import GHC.Generics        (Generic)
-import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, levels)
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), levels,
+                            moveDir)
+import Sokoban.Solver      (aStarFind)
 
-import qualified Data.HashMap.Strict as H
-import qualified Data.HashPSQ        as Q
-import qualified Data.HashSet        as S
-import qualified Data.Text           as T
-import qualified Data.Vector         as V
-import qualified Sokoban.Level       as L (cells, height, id, width)
-import qualified Text.Builder        as TB
-
-data Point =
-  Point Int Int
-  deriving (Eq, Show, Generic, Hashable)
-
-instance Ord Point where
-  (Point i1 j1) <= (Point i2 j2) = (i1 <= i2) || ((i1 < i2) && (j1 <= j2))
-
-makePrisms ''Point
+import qualified Data.HashSet  as S
+import qualified Data.Text     as T
+import qualified Data.Vector   as V
+import qualified Sokoban.Level as L (cells, height, id, width)
+import qualified Text.Builder  as TB
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -107,25 +95,6 @@ data Action
   | MoveWorker Point
   | Debug
   deriving (Eq, Show)
-
-data Weight =
-  Weight
-    { _fScore :: Int
-    , _gScore :: Int
-    , _parent :: Point
-    }
-  deriving (Eq, Show)
-
-makeLenses ''Weight
-
-data AStar =
-  AStar
-    { _openList   :: Q.HashPSQ Point Int Weight
-    , _closedList :: H.HashMap Point Point
-    }
-  deriving (Eq, Show)
-
-makeLenses ''AStar
 
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
@@ -389,16 +358,6 @@ move triple =
     (WorkerOnGoal d, Goal, c3)         -> ((Goal, WorkerOnGoal d, c3), Just False)
     _                                  -> (triple, Nothing)
 
--- We use screen (not Decartes) coordinates (i, j).
--- The origin is in the upper left corner.
-moveDir :: Point -> Direction -> Point
-moveDir p d =
-  case d of
-    U -> p & _Point . _1 +~ -1
-    D -> p & _Point . _1 +~ 1
-    L -> p & _Point . _2 +~ -1
-    R -> p & _Point . _2 +~ 1
-
 getCell :: MonadState GameState m => Point -> m Cell
 getCell p = do
   ls <- use levelState
@@ -451,66 +410,3 @@ showState gs =
         BoxOnGoal      -> TB.char '*'
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
-
-aStarInit :: Point -> AStar
-aStarInit src =
-  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
-      openList = Q.singleton src (weight ^. fScore) weight
-      closedList = H.empty :: H.HashMap Point Point
-   in AStar openList closedList
-
-aStarFind :: Point -> Point -> (Point -> Bool) -> [Point]
-aStarFind src dst isAccessible =
-  let astar = aStarInit src
-      path = evalState (aStarFindRec dst isAccessible) astar
-   in path
-
-aStarFindRec :: MonadState AStar m => Point -> (Point -> Bool) -> m [Point]
-aStarFindRec dst isAccessible = do
-  openList0 <- use openList
-  closedList0 <- use closedList
-  case Q.findMin openList0 of
-    Nothing -> gets $ backtrace dst <$> flip (^.) closedList
-    Just (p0, _, weight0)
-      | p0 == dst -> do
-        closedList %= H.insert p0 (weight0 ^. parent)
-        gets $ backtrace dst <$> flip (^.) closedList
-    Just (p0, _, weight0) -> do
-      openList %= Q.delete p0
-      closedList %= H.insert p0 (weight0 ^. parent)
-      let neighbors = filter (\p -> not (H.member p closedList0) && isAccessible p) $ map (moveDir p0) [U, D, L, R]
-      -- `k` is the current node, `fs` is f-score
-      forM_ neighbors $ \np -> do
-        let g1 = weight0 ^. gScore + fromEnum (np /= p0)
-        let f1 = g1 + heuristic np dst
-        let p1 = p0
-        let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
-        case Q.lookup np openList0 of
-          Just (_, w)
-              -- the neighbour can be reached with smaller cost - change priority
-              -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
-           -> when (g1 < (w ^. gScore)) $ openList .= Q.insert np f1 w1 openList0
-          Nothing
-            -- the neighbour is new
-           -> openList .= Q.insert np f1 w1 openList0
-      aStarFindRec dst isAccessible
-
-backtrace :: Point -> H.HashMap Point Point -> [Point]
-backtrace dst closedList =
-  let path = backtrace' dst []
-   in reverse path
-  where
-    backtrace' current acc
-    -- we repeatedly lookup for the parent of the current node
-     =
-      case H.lookup current closedList of
-        Nothing -> acc
-        Just parent
-          | current == parent -> acc
-        Just parent -> backtrace' parent (parent : acc)
-
-heuristic :: Point -> Point -> Int
-heuristic next dst =
-  let Point i1 j1 = next
-      Point i2 j2 = dst
-   in abs (i1 - i2) + abs (j1 - j2)

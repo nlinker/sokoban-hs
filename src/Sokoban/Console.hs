@@ -16,13 +16,13 @@ import Data.Char           (isDigit)
 import Data.List           (isSuffixOf, stripPrefix)
 import Data.Maybe          (fromMaybe, isJust)
 import Data.Vector         ((!))
-import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), levels)
-import Sokoban.Model       (GameState(..), Point(..), ViewState(..), aStarFind, cells, clicks,
-                            destinations, getCell, height, id, initial, isBox, isEmptyOrGoal,
-                            isWorker, levelState, levelState, message, step, viewState, width,
-                            worker)
+import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), Point(..), levels)
+import Sokoban.Model       (GameState(..), ViewState(..), cells, clicks, destinations, getCell,
+                            height, id, initial, isBox, isEmptyOrGoal, isWorker, levelState,
+                            levelState, message, step, viewState, width, worker)
 import Sokoban.Parser      (parseLevels, splitWith)
 import Sokoban.Resources   (yoshiroAutoCollection)
+import Sokoban.Solver      (aStarFind)
 import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..),
                             SGR(..), setSGR)
 import System.Environment  (getArgs)
