@@ -17,7 +17,7 @@ import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+~), (.=), (.~), (
                             _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, unless, when)
-import Control.Monad.State (MonadState, evalState, execState, gets)
+import Control.Monad.State (MonadState, evalState, execState, get, gets)
 import Data.Hashable       (Hashable)
 import Data.Vector         (Vector, (!))
 import GHC.Generics        (Generic)
@@ -28,7 +28,6 @@ import qualified Data.HashPSQ        as Q
 import qualified Data.HashSet        as S
 import qualified Data.Text           as T
 import qualified Data.Vector         as V
-import           Debug.Trace         (traceShowM)
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
@@ -119,6 +118,15 @@ data Weight =
 
 makeLenses ''Weight
 
+data AStar =
+  AStar
+    { _openList   :: Q.HashPSQ Point Int Weight
+    , _closedList :: H.HashMap Point Point
+    }
+  deriving (Eq, Show)
+
+makeLenses ''AStar
+
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
 
@@ -149,8 +157,10 @@ runStep action = do
 calculateAndMoveWorker :: MonadState GameState m => Point -> m ()
 calculateAndMoveWorker dst = do
   src <- use $ levelState . worker
-  --  pathData <- aStarFind src dst
-  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")")
+  gs <- get
+  let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+  let path = aStarFind src dst isAccessible
+  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show path <> "      ")
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
@@ -442,15 +452,6 @@ showState gs =
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
 
-data AStar =
-  AStar
-    { _openList   :: Q.HashPSQ Point Int Weight
-    , _closedList :: H.HashMap Point Point
-    }
-  deriving (Eq, Show)
-
-makeLenses ''AStar
-
 aStarInit :: Point -> AStar
 aStarInit src =
   let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
@@ -492,9 +493,6 @@ aStarFindRec dst isAccessible = do
           Nothing
             -- the neighbour is new
            -> openList .= Q.insert np f1 w1 openList0
-      openList0 <- use openList
-      closedList0 <- use closedList
-      traceShowM (openList0, closedList0)
       aStarFindRec dst isAccessible
 
 backtrace :: Point -> H.HashMap Point Point -> [Point]

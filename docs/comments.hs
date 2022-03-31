@@ -312,4 +312,7 @@ aStarFind src dst = do
 buildPath :: H.HashMap Point (Maybe Point) -> Maybe [Point]
 buildPath = undefined
 
+
+ levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")")
+
 -}
