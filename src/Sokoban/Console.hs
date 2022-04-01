@@ -19,7 +19,7 @@ import Data.List              (isSuffixOf, stripPrefix)
 import Data.Maybe             (fromMaybe, isJust)
 import Data.Vector            ((!))
 import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
-                               isEmptyOrGoal, isWorker, levels)
+                               isEmptyOrGoal, isWorker, levels, deriveDir)
 import Sokoban.Model          (GameState(..), ViewState(..), cells, clicks, destinations, getCell,
                                height, id, initial, levelState, levelState, message, step,
                                viewState, width, worker)
@@ -36,43 +36,6 @@ import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
-
-runTest :: IO ()
-runTest = do
-  gs <- buildGameState []
-  let src = gs ^. levelState . worker
-  let dst = Point 2 1
-  let isAccessible :: Point -> Identity Bool
-      isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs
-  let path = runIdentity $ aStarFind src dst isAccessible
-  clearScreen
-  _ <- moveWorker gs path
-  print path
-  where
-    moveWorker :: GameState -> [Point] -> IO GameState
-    moveWorker gs1 [] = return gs1
-    moveWorker gs1 (p:ps) = do
-      let w = gs1 ^. levelState . worker
-      let gs2 =
-            case findDir w p of
-              Just U -> step gs1 A.Up
-              Just D -> step gs1 A.Down
-              Just L -> step gs1 A.Left
-              Just R -> step gs1 A.Right
-              _      -> gs1
-      moveCursorToOrigin
-      render gs2
-      threadDelay 100000
-      moveWorker gs2 ps
-
-findDir :: Point -> Point -> Maybe Direction
-findDir (Point i1 j1) (Point i2 j2) =
-  case (i2 - i1, j2 - j1) of
-    (-1, 0) -> Just U
-    (1, 0)  -> Just D
-    (0, -1) -> Just L
-    (0, 1)  -> Just R
-    _       -> Nothing
 
 runConsoleGame :: IO ()
 runConsoleGame =
@@ -123,6 +86,7 @@ buildGameState args = do
 
 gameLoop :: GameState -> IO ()
 gameLoop gs = do
+  -- if we need to draw multiple 
   moveCursorToOrigin
   render gs
   key <- getKey
@@ -279,3 +243,31 @@ render gs = do
         Goal -> ('⁘', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
+
+runTest :: IO ()
+runTest = do
+  gs <- buildGameState []
+  let src = gs ^. levelState . worker
+  let dst = Point 2 1
+  let isAccessible :: Point -> Identity Bool
+      isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs
+  let path = runIdentity $ aStarFind src dst isAccessible
+  clearScreen
+  _ <- moveWorker gs path
+  print path
+  where
+    moveWorker :: GameState -> [Point] -> IO GameState
+    moveWorker gs1 [] = return gs1
+    moveWorker gs1 (p:ps) = do
+      let w = gs1 ^. levelState . worker
+      let gs2 =
+            case deriveDir w p of
+              Just U -> step gs1 A.Up
+              Just D -> step gs1 A.Down
+              Just L -> step gs1 A.Left
+              Just R -> step gs1 A.Right
+              _      -> gs1
+      moveCursorToOrigin
+      render gs2
+      threadDelay 100000
+      moveWorker gs2 ps

@@ -15,11 +15,10 @@ import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
 import Control.Monad       (filterM, forM_, when)
 import Control.Monad.State (StateT, evalStateT, gets, lift)
-import Sokoban.Level       (Direction(..), Point(..), moveDir)
+import Sokoban.Level       (Direction(..), Point(..), moveToDir)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
-import Debug.Trace (traceShowM)
 
 data Weight =
   Weight
@@ -61,13 +60,11 @@ aStarFindRec dst isAccessible = do
     Just (p0, _, weight0)
       | p0 == dst -> do
         closedList %= H.insert p0 (weight0 ^. parent)
-        cl <- use closedList
-        traceShowM cl
         gets $ backtrace dst <$> flip (^.) closedList
     Just (p0, _, weight0) -> do
       openList %= Q.delete p0
       closedList %= H.insert p0 (weight0 ^. parent)
-      let neighs = filter (not . (`H.member` closedList0)) $ map (moveDir p0) [U, D, L, R]
+      let neighs = filter (not . (`H.member` closedList0)) $ map (moveToDir p0) [U, D, L, R]
       neighbors <- filterM (lift . isAccessible) neighs
       -- `k` is the current node, `fs` is f-score
       forM_ neighbors $ \np -> do

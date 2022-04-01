@@ -70,13 +70,22 @@ makePrisms ''Point
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
-moveDir :: Point -> Direction -> Point
-moveDir p d =
+moveToDir :: Point -> Direction -> Point
+moveToDir p d =
   case d of
     U -> p & _Point . _1 +~ -1
     D -> p & _Point . _1 +~ 1
     L -> p & _Point . _2 +~ -1
     R -> p & _Point . _2 +~ 1
+
+deriveDir :: Point -> Point -> Maybe Direction
+deriveDir (Point i1 j1) (Point i2 j2) =
+  case (i2 - i1, j2 - j1) of
+    (-1, 0) -> Just U
+    (1, 0)  -> Just D
+    (0, -1) -> Just L
+    (0, 1)  -> Just R
+    _       -> Nothing
 
 isWorker :: Cell -> Bool
 isWorker c =

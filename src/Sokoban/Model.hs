@@ -19,7 +19,7 @@ import Control.Monad       (forM_, unless, when)
 import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
-                            isEmptyOrGoal, isGoal, isWorker, levels, moveDir)
+                            isEmptyOrGoal, isGoal, isWorker, levels, moveToDir)
 import Sokoban.Solver      (aStarFind)
 
 import qualified Data.HashSet  as S
@@ -187,8 +187,8 @@ undoMove = do
   when (0 <= uidx && uidx < length undos) $ do
     let diff = undos !! uidx
     let point0 = diff ^. point
-    let point1 = moveDir point0 $ diff ^. direction
-    let point2 = moveDir point1 $ diff ^. direction
+    let point1 = moveToDir point0 $ diff ^. direction
+    let point2 = moveToDir point1 $ diff ^. direction
     updateCell point0 $ diff ^. cell0
     updateCell point1 $ diff ^. cell1
     updateCell point2 $ diff ^. cell2
@@ -208,8 +208,8 @@ moveWorker d redoing = do
   let allowToMove = not $ ls ^. isComplete
   when allowToMove $ do
     let point0 = ls ^. worker
-    let point1 = moveDir point0 d
-    let point2 = moveDir point1 d
+    let point1 = moveToDir point0 d
+    let point2 = moveToDir point1 d
     c0' <- getCell point0
     c1 <- getCell point1
     c2 <- getCell point2
