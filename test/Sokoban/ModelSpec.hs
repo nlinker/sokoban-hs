@@ -2,16 +2,15 @@ module Sokoban.ModelSpec where
 
 import Control.Arrow          (second)
 import Control.Lens           ((&), (.~), (^.))
-import Control.Monad.Identity (Identity, runIdentity)
+import Control.Monad.Identity (runIdentity)
 import Control.Monad.State    (evalState)
 import Data.Maybe             (fromJust)
-import Debug.Trace            (traceShowM)
 import Sokoban.Console        (interpretClick, render)
 import Sokoban.Level          (Point(..), isEmptyOrGoal, levels)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initial, levelState,
                                viewState, worker)
 import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (aStarFind, aStarInit)
+import Sokoban.Solver         (aStarFind)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
