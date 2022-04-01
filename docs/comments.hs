@@ -315,4 +315,15 @@ buildPath = undefined
 
  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")")
 
+
+calculateAndMoveWorker :: MonadState GameState m => Point -> m ()
+calculateAndMoveWorker dst = do
+  src <- use $ levelState . worker
+  gs <- get
+  path <- aStarFind src dst isAccessible -- ?????????????
+  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show path <> "      ")
+  where
+    isAccessible :: MonadState GameState m => Point -> m Bool
+    isAccessible p = isEmptyOrGoal <$> getCell p
+
 -}

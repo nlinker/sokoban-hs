@@ -8,26 +8,27 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Exception   (finally)
-import Control.Lens        (use, (&), (.=), (.~), (^.))
-import Control.Monad       (forM_, when)
-import Control.Monad.State (MonadState, evalState, runState)
-import Data.Char           (isDigit)
-import Data.List           (isSuffixOf, stripPrefix)
-import Data.Maybe          (fromMaybe, isJust)
-import Data.Vector         ((!))
-import Sokoban.Level       (Cell(..), Direction(..), LevelCollection(..), Point(..), levels)
-import Sokoban.Model       (GameState(..), ViewState(..), cells, clicks, destinations, getCell,
-                            height, id, initial, isBox, isEmptyOrGoal, isWorker, levelState,
-                            levelState, message, step, viewState, width, worker)
-import Sokoban.Parser      (parseLevels, splitWith)
-import Sokoban.Resources   (yoshiroAutoCollection)
-import Sokoban.Solver      (aStarFind)
-import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..),
-                            SGR(..), setSGR)
-import System.Environment  (getArgs)
-import System.IO           (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import Text.Read           (readMaybe)
+import Control.Exception      (finally)
+import Control.Lens           (use, (&), (.=), (.~), (^.))
+import Control.Monad          (forM_, when)
+import Control.Monad.Identity (Identity)
+import Control.Monad.State    (MonadState, evalState, runState)
+import Data.Char              (isDigit)
+import Data.List              (isSuffixOf, stripPrefix)
+import Data.Maybe             (fromMaybe, isJust)
+import Data.Vector            ((!))
+import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), levels)
+import Sokoban.Model          (GameState(..), ViewState(..), cells, clicks, destinations, getCell,
+                               height, id, initial, isBox, isEmptyOrGoal, isWorker, levelState,
+                               levelState, message, step, viewState, width, worker)
+import Sokoban.Parser         (parseLevels, splitWith)
+import Sokoban.Resources      (yoshiroAutoCollection)
+import Sokoban.Solver         (aStarFind)
+import System.Console.ANSI    (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
+                               ConsoleLayer(..), SGR(..), setSGR)
+import System.Environment     (getArgs)
+import System.IO              (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import Text.Read              (readMaybe)
 
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
@@ -39,7 +40,8 @@ runa = do
   gs <- buildGameState []
   let src = gs ^. levelState . worker
   let dst = Point 2 1
-  let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+  let isAccessible :: Point -> Identity Bool
+      isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs
   let path = aStarFind src dst isAccessible
   print path
 

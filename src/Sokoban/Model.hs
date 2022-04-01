@@ -16,7 +16,7 @@ import qualified Prelude as P
 import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses)
 import Control.Monad       (forM_, unless, when)
-import Control.Monad.State (MonadState, evalState, execState, get)
+import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), levels,
                             moveDir)
@@ -41,6 +41,8 @@ data Diff =
   deriving (Eq, Show)
 
 makeLenses ''Diff
+
+data UndoItem = One Diff | Many [Diff]
 
 data LevelState =
   LevelState
@@ -126,9 +128,8 @@ runStep action = do
 calculateAndMoveWorker :: MonadState GameState m => Point -> m ()
 calculateAndMoveWorker dst = do
   src <- use $ levelState . worker
-  gs <- get
-  let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
-  let path = aStarFind src dst isAccessible
+  let isAccessible p = isEmptyOrGoal <$> getCell p
+  path <- aStarFind src dst isAccessible
   levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show path <> "      ")
 
 dumpState :: MonadState GameState m => m ()

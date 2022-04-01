@@ -13,8 +13,8 @@ import Prelude hiding (Left, Right, id)
 
 import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
-import Control.Monad       (forM_, when)
-import Control.Monad.State (MonadState, evalState, gets)
+import Control.Monad       (forM_, when, filterM)
+import Control.Monad.State (gets, evalStateT, StateT, lift)
 import Sokoban.Level       (Direction(..), Point(..), moveDir)
 
 import qualified Data.HashMap.Strict as H
@@ -46,13 +46,12 @@ aStarInit src =
       closedList = H.empty :: H.HashMap Point Point
    in AStar openList closedList
 
-aStarFind :: Point -> Point -> (Point -> Bool) -> [Point]
-aStarFind src dst isAccessible =
+aStarFind :: Monad m => Point -> Point -> (Point -> m Bool) -> m [Point]
+aStarFind src dst isAccessible = do
   let astar = aStarInit src
-      path = evalState (aStarFindRec dst isAccessible) astar
-   in path
+  evalStateT (aStarFindRec dst isAccessible) astar
 
-aStarFindRec :: MonadState AStar m => Point -> (Point -> Bool) -> m [Point]
+aStarFindRec :: Monad m => Point -> (Point -> m Bool) -> StateT AStar m [Point]
 aStarFindRec dst isAccessible = do
   openList0 <- use openList
   closedList0 <- use closedList
@@ -65,7 +64,8 @@ aStarFindRec dst isAccessible = do
     Just (p0, _, weight0) -> do
       openList %= Q.delete p0
       closedList %= H.insert p0 (weight0 ^. parent)
-      let neighbors = filter (\p -> not (H.member p closedList0) && isAccessible p) $ map (moveDir p0) [U, D, L, R]
+      let neighs = filter (not . (`H.member` closedList0)) $ map (moveDir p0) [U, D, L, R]
+      neighbors <- filterM (lift . isAccessible) neighs
       -- `k` is the current node, `fs` is f-score
       forM_ neighbors $ \np -> do
         let g1 = weight0 ^. gScore + fromEnum (np /= p0)
