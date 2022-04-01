@@ -13,12 +13,13 @@ import Prelude hiding (Left, Right, id)
 
 import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
-import Control.Monad       (forM_, when, filterM)
-import Control.Monad.State (gets, evalStateT, StateT, lift)
+import Control.Monad       (filterM, forM_, when)
+import Control.Monad.State (StateT, evalStateT, gets, lift)
 import Sokoban.Level       (Direction(..), Point(..), moveDir)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
+import Debug.Trace (traceShowM)
 
 data Weight =
   Weight
@@ -60,6 +61,8 @@ aStarFindRec dst isAccessible = do
     Just (p0, _, weight0)
       | p0 == dst -> do
         closedList %= H.insert p0 (weight0 ^. parent)
+        cl <- use closedList
+        traceShowM cl
         gets $ backtrace dst <$> flip (^.) closedList
     Just (p0, _, weight0) -> do
       openList %= Q.delete p0
@@ -83,18 +86,16 @@ aStarFindRec dst isAccessible = do
       aStarFindRec dst isAccessible
 
 backtrace :: Point -> H.HashMap Point Point -> [Point]
-backtrace dst closedList =
-  let path = backtrace' dst []
-   in reverse path
-  where
-    backtrace' current acc
+backtrace dst closedList
     -- we repeatedly lookup for the parent of the current node
-     =
+ = backtraceRec dst [dst]
+  where
+    backtraceRec current acc =
       case H.lookup current closedList of
-        Nothing -> acc
+        Nothing -> []
         Just parent
           | current == parent -> acc
-        Just parent -> backtrace' parent (parent : acc)
+        Just parent -> backtraceRec parent (parent : acc)
 
 heuristic :: Point -> Point -> Int
 heuristic next dst =

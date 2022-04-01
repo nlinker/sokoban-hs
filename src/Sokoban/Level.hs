@@ -77,3 +77,35 @@ moveDir p d =
     D -> p & _Point . _1 +~ 1
     L -> p & _Point . _2 +~ -1
     R -> p & _Point . _2 +~ 1
+
+isWorker :: Cell -> Bool
+isWorker c =
+  case c of
+    (Worker _)       -> True
+    (WorkerOnGoal _) -> True
+    _                -> False
+
+isBox :: Cell -> Bool
+isBox c =
+  case c of
+    Box       -> True
+    BoxOnGoal -> True
+    _         -> False
+
+isEmptyOrGoal :: Cell -> Bool
+isEmptyOrGoal c =
+  case c of
+    Empty -> True
+    Goal  -> True
+    _     -> False
+
+isGoal :: Cell -> Bool
+isGoal c =
+  case c of
+    Goal           -> True
+    BoxOnGoal      -> True
+    WorkerOnGoal _ -> True
+    _              -> False
+
+isWall :: Cell -> Bool
+isWall c = c == Wall

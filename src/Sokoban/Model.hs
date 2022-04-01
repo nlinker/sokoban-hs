@@ -18,8 +18,8 @@ import Control.Lens.TH     (makeLenses)
 import Control.Monad       (forM_, unless, when)
 import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
-import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), levels,
-                            moveDir)
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
+                            isEmptyOrGoal, isGoal, isWorker, levels, moveDir)
 import Sokoban.Solver      (aStarFind)
 
 import qualified Data.HashSet  as S
@@ -42,7 +42,9 @@ data Diff =
 
 makeLenses ''Diff
 
-data UndoItem = One Diff | Many [Diff]
+data UndoItem
+  = One Diff
+  | Many [Diff]
 
 data LevelState =
   LevelState
@@ -309,38 +311,6 @@ extractWBH xs =
           when (isWorker x) $ _1 %= (Point i j :)
           when (isBox x) $ _2 %= (Point i j :)
           when (isGoal x) $ _3 %= (Point i j :)
-
-isWorker :: Cell -> Bool
-isWorker c =
-  case c of
-    (Worker _)       -> True
-    (WorkerOnGoal _) -> True
-    _                -> False
-
-isBox :: Cell -> Bool
-isBox c =
-  case c of
-    Box       -> True
-    BoxOnGoal -> True
-    _         -> False
-
-isEmptyOrGoal :: Cell -> Bool
-isEmptyOrGoal c =
-  case c of
-    Empty -> True
-    Goal  -> True
-    _     -> False
-
-isGoal :: Cell -> Bool
-isGoal c =
-  case c of
-    Goal           -> True
-    BoxOnGoal      -> True
-    WorkerOnGoal _ -> True
-    _              -> False
-
-isWall :: Cell -> Bool
-isWall c = c == Wall
 
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =
