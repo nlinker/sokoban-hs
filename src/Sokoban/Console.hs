@@ -8,10 +8,11 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
+import Control.Concurrent     (threadDelay)
 import Control.Exception      (finally)
 import Control.Lens           (use, (&), (.=), (.~), (^.))
 import Control.Monad          (forM_, when)
-import Control.Monad.Identity (Identity)
+import Control.Monad.Identity (Identity, runIdentity)
 import Control.Monad.State    (MonadState, evalState, runState)
 import Data.Char              (isDigit)
 import Data.List              (isSuffixOf, stripPrefix)
@@ -36,15 +37,42 @@ import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
 
-runa :: IO ()
-runa = do
+runTest :: IO ()
+runTest = do
   gs <- buildGameState []
   let src = gs ^. levelState . worker
   let dst = Point 2 1
   let isAccessible :: Point -> Identity Bool
       isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs
-  let path = aStarFind src dst isAccessible
+  let path = runIdentity $ aStarFind src dst isAccessible
+  clearScreen
+  _ <- moveWorker gs path
   print path
+  where
+    moveWorker :: GameState -> [Point] -> IO GameState
+    moveWorker gs1 [] = return gs1
+    moveWorker gs1 (p:ps) = do
+      let w = gs1 ^. levelState . worker
+      let gs2 =
+            case findDir w p of
+              Just U -> step gs1 A.Up
+              Just D -> step gs1 A.Down
+              Just L -> step gs1 A.Left
+              Just R -> step gs1 A.Right
+              _      -> gs1
+      moveCursorToOrigin
+      render gs2
+      threadDelay 100000
+      moveWorker gs2 ps
+
+findDir :: Point -> Point -> Maybe Direction
+findDir (Point i1 j1) (Point i2 j2) =
+  case (i2 - i1, j2 - j1) of
+    (-1, 0) -> Just U
+    (1, 0)  -> Just D
+    (0, -1) -> Just L
+    (0, 1)  -> Just R
+    _       -> Nothing
 
 runConsoleGame :: IO ()
 runConsoleGame =
