@@ -44,8 +44,9 @@ whenWith a p runA =
     then runA a
     else return a
 
-runConsoleGame :: IO ()
-runConsoleGame =
+-- | run console gane
+run :: IO ()
+run =
   do args <- getArgs
      gameState <- buildGameState args
      do setupScreen
@@ -116,13 +117,7 @@ gameLoop gs
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
     -- perform animation if needed
-    gs2 <-
-      whenWith gs1 (^. (viewState . doAnimate)) $ \gs -> do
-        gs <- animate gs
-        return $ gs 
-          & viewState . doAnimate .~ False 
-          & viewState . directions .~ [] 
-          & viewState . destinations .~ S.empty
+    gs2 <- whenWith gs1 (^. (viewState . doAnimate)) animate
     -- clear screen if needed
     gs3 <-
       whenWith gs2 (^. (viewState . doClearScreen)) $ \gs -> do
@@ -131,9 +126,10 @@ gameLoop gs
     gameLoop gs3
 
 animate :: GameState -> IO GameState
-animate gs = do
-  let dirs = gs ^. viewState . directions
-  animateRec gs dirs
+animate finalGs = do
+  let dirs = finalGs ^. viewState . directions
+  _ <- animateRec finalGs dirs
+  return $ finalGs & viewState . doAnimate .~ False & viewState . directions .~ [] & viewState . destinations .~ S.empty
   where
     animateRec :: GameState -> [Direction] -> IO GameState
     animateRec gs [] = return gs

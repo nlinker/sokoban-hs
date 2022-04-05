@@ -70,8 +70,8 @@ makePrisms ''Point
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
-moveToDir :: Point -> Direction -> Point
-moveToDir p d =
+movePoint :: Point -> Direction -> Point
+movePoint p d =
   case d of
     U -> p & _Point . _1 +~ -1
     D -> p & _Point . _1 +~ 1

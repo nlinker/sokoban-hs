@@ -15,7 +15,7 @@ import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
 import Control.Monad       (filterM, forM_, when)
 import Control.Monad.State (StateT, evalStateT, gets, lift)
-import Sokoban.Level       (Direction(..), Point(..), deriveDir, moveToDir)
+import Sokoban.Level       (Direction(..), Point(..), deriveDir, movePoint)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
@@ -64,7 +64,7 @@ aStarFindRec dst isAccessible = do
     Just (p0, _, weight0) -> do
       openList %= Q.delete p0
       closedList %= H.insert p0 (weight0 ^. parent)
-      let neighs = filter (not . (`H.member` closedList0)) $ map (moveToDir p0) [U, D, L, R]
+      let neighs = filter (not . (`H.member` closedList0)) $ map (movePoint p0) [U, D, L, R]
       neighbors <- filterM (lift . isAccessible) neighs
       -- `k` is the current node, `fs` is f-score
       forM_ neighbors $ \np -> do
