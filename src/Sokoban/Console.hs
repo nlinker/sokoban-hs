@@ -106,13 +106,15 @@ gameLoop gs0
             "\ESC[B" -> step gs0 A.Down
             "\ESC[C" -> step gs0 A.Right
             "\ESC[D" -> step gs0 A.Left
+            "\ESC[5~" -> step gs0 A.PrevLevel
+            "\ESC[6~" -> step gs0 A.NextLevel
             "u" -> step gs0 A.Undo
             "i" -> step gs0 A.Redo
             "r" -> step gs0 A.Restart
-            "\ESC[5~" -> step gs0 A.PrevLevel
-            "\ESC[6~" -> step gs0 A.NextLevel
             "d" -> step gs0 A.Debug
-            _ ->
+            _
+              -- A.MoveWorker dstPoint and A.MoveBoxes srcBoxes dstBoxes
+             ->
               case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
@@ -120,9 +122,7 @@ gameLoop gs0
     gs2 <-
       whenWith gs1 (^. (viewState . animateRequired)) $ do
         animate gs0 gs1
-        return $ gs1 
-          & viewState . animateRequired .~ False 
-          & viewState . animateForward .~ False
+        return $ gs1 & viewState . animateRequired .~ False & viewState . animateForward .~ False
     -- clear screen if needed
     gs3 <-
       whenWith gs2 (^. (viewState . doClearScreen)) $ do
@@ -244,6 +244,7 @@ getKey = reverse <$> getKey' ""
 render :: GameState -> IO ()
 render gs = do
   let ls = gs ^. levelState
+  let vs = gs ^. viewState
   let cs = ls ^. cells
   let m = ls ^. height
   let n = ls ^. width
@@ -251,18 +252,21 @@ render gs = do
   forM_ points $ \p -> do
     let Point i j = p
     let (char, color) = getCellSkin $ (cs ! i) ! j
-    colorStr color False $
-      if j /= 0
-        then " " ++ [char]
-        else [char]
+    let suffix =
+          if j /= 0
+            then " " ++ [char]
+            else [char]
+    if p `elem` (vs ^. clicks)
+      then colorStr color True suffix
+      else colorStr color False suffix
     when (j == n - 1) $ putStrLn ""
   T.putStrLn $ "Level: " <> ls ^. id
   T.putStrLn $ ls ^. message
   where
     colorStr :: Color -> Bool -> String -> IO ()
-    colorStr color blink str = do
+    colorStr color selected str = do
       setSGR $
-        if blink
+        if selected
           then [SetColor Foreground Vivid color, SetColor Background Dull Black, SetBlinkSpeed SlowBlink]
           else [SetColor Foreground Vivid color, SetColor Background Dull Black]
       putStr str

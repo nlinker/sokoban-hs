@@ -100,6 +100,7 @@ data Action
   | Restart
   | PrevLevel
   | NextLevel
+  | SelectBox Point -- TODO or boxes?
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
   | Debug
@@ -111,18 +112,18 @@ step gameState action = (execState $ runStep action) gameState
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
   case action of
-    Up             -> moveWorker (toDirection action) True
-    Down           -> moveWorker (toDirection action) True
-    Left           -> moveWorker (toDirection action) True
-    Right          -> moveWorker (toDirection action) True
-    Restart        -> restartLevel
-    Undo           -> undoMoveWorker
-    Redo           -> redoMoveWorker
-    PrevLevel      -> switchLevel (negate 1)
-    NextLevel      -> switchLevel (0 + 1)
-    MoveWorker dst -> calculatePathMoveWorker dst
-    Debug          -> dumpState
-    _              -> return ()
+    Up                -> moveWorker (toDirection action) True
+    Down              -> moveWorker (toDirection action) True
+    Left              -> moveWorker (toDirection action) True
+    Right             -> moveWorker (toDirection action) True
+    Restart           -> restartLevel
+    Undo              -> undoMoveWorker
+    Redo              -> redoMoveWorker
+    PrevLevel         -> switchLevel (negate 1)
+    NextLevel         -> switchLevel (0 + 1)
+    MoveWorker dst    -> moveWorkerAlongPath dst
+    MoveBoxes src dst -> moveBoxes src dst
+    Debug             -> dumpState
     -- now compare the sets and check the game completion
   ls <- use levelState
   if ls ^. goals == ls ^. boxes
@@ -249,25 +250,6 @@ undoMoveWorker = do
       levelState . boxes .= b
       levelState . goals .= h
 
-calculatePathMoveWorker :: MonadState GameState m => Point -> m ()
-calculatePathMoveWorker dst = do
-  src <- use $ levelState . worker
-  let isAccessible p = isEmptyOrGoal <$> getCell p
-  dirs <- pathToDirections <$> aStarFind src dst isAccessible
-  diffs' <- sequenceA <$> mapM doMove dirs
-  -- traceM $ "\ndiffs' = " <> show diffs'
-  case diffs' of
-    Nothing -> return ()
-    Just [] -> return ()
-    Just diffs -> do
-      ls <- use levelState
-      let uidx = ls ^. undoIndex
-      levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
-      levelState . undoIndex .= 0
-  viewState . animateRequired .= True
-  viewState . animateForward .= True
-  -- levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show dirs <> "      ")
-
 moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
 moveWorker d storeUndo = do
   diff' <- doMove d
@@ -282,6 +264,35 @@ moveWorker d storeUndo = do
         levelState . undoStack .= UndoItem [diff] : drop uidx (ls ^. undoStack)
         levelState . undoIndex .= 0
 
+moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
+moveWorkerAlongPath dst = do
+  src <- use $ levelState . worker
+  let isAccessible p = isEmptyOrGoal <$> getCell p
+  dirs <- pathToDirections <$> aStarFind src dst isAccessible
+  diffs' <- sequenceA <$> mapM doMove dirs
+  -- traceM $ "\ndiffs' = " <> show diffs'
+  case diffs' of
+    Nothing -> return ()
+    Just [] -> return ()
+    Just diffs -> do
+      ls <- use levelState
+      let uidx = ls ^. undoIndex
+      levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
+      levelState . undoIndex .= 0
+      viewState . animateRequired .= True
+      viewState . animateForward .= True
+  -- levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show dirs <> "      ")
+
+calculateBoxReachability :: MonadState GameState m => Point -> m ()
+calculateBoxReachability box = do
+  boxez <- use $ levelState . boxes
+  when (S.member box boxez) undefined
+
+moveBoxes :: MonadState GameState m => [Point] -> [Point] -> m ()
+moveBoxes src dst = do 
+  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")" )
+  viewState . doClearScreen .= True
+  
 toDirection :: Action -> Direction
 toDirection a =
   case a of
