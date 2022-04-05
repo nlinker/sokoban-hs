@@ -6,19 +6,16 @@ import Control.Monad.Identity (runIdentity)
 import Control.Monad.State    (evalState)
 import Data.Maybe             (fromJust)
 import Sokoban.Console        (interpretClick, render)
-import Sokoban.Level          (Point(..), isEmptyOrGoal, levels)
+import Sokoban.Level          (Direction(..), Point(..), isEmptyOrGoal, levels)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initial, levelState,
                                viewState, worker)
 import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (aStarFind)
+import Sokoban.Solver         (aStarFind, pathToDirections)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
 
 import Test.Hspec
-
-main :: IO ()
-main = hspec spec
 
 gs :: GameState
 gs =
@@ -26,7 +23,7 @@ gs =
     { _collection = yoshiroAutoCollection
     , _index = 0
     , _levelState = fromJust $ initial $ head $ yoshiroAutoCollection ^. levels
-    , _viewState = ViewState [] S.empty
+    , _viewState = ViewState False False [] S.empty []
     }
 
 spec :: Spec
@@ -58,6 +55,19 @@ spec = do
       let src = gs ^. levelState . worker
       let dst = Point 1 2
       aStarTest src dst `shouldBe` []
+  describe "path conversion" $ do
+    it "convert normal" $ do
+      let points = [Point 5 3, Point 5 2, Point 4 2, Point 4 1, Point 3 1, Point 2 1]
+      pathToDirections points `shouldBe` [L, U, L, U, U]
+    it "convert with gap" $ do
+      let points = [Point 5 3, Point 5 2, Point 3 1, Point 4 1, Point 3 1, Point 2 1]
+      pathToDirections points `shouldBe` [L]
+    it "convert single point" $ do
+      let points = [Point 5 3]
+      pathToDirections points `shouldBe` []
+    it "convert empty" $ do
+      let points = []
+      pathToDirections points `shouldBe` []
   where
     aStarTest src dst = runIdentity $ aStarFind src dst isAccessible
     isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs

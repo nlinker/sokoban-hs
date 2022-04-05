@@ -15,12 +15,12 @@ import qualified Prelude as P
 
 import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses)
-import Control.Monad       (forM_, unless, when)
+import Control.Monad       (forM_, when)
 import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
                             isEmptyOrGoal, isGoal, isWorker, levels, moveToDir)
-import Sokoban.Solver      (aStarFind)
+import Sokoban.Solver      (aStarFind, pathToDirections)
 
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
@@ -67,8 +67,11 @@ makeLenses ''LevelState
 
 data ViewState =
   ViewState
-    { _clicks       :: ![Point]
-    , _destinations :: S.HashSet Point
+    { _doAnimate     :: !Bool
+    , _doClearScreen :: !Bool
+    , _clicks        :: ![Point]
+    , _destinations  :: S.HashSet Point
+    , _directions    :: ![Direction]
     }
   deriving (Eq, Show)
 
@@ -106,10 +109,10 @@ step gameState action = (execState $ runStep action) gameState
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
   case action of
-    Up             -> moveWorker (toDirection action) False
-    Down           -> moveWorker (toDirection action) False
-    Left           -> moveWorker (toDirection action) False
-    Right          -> moveWorker (toDirection action) False
+    Up             -> moveWorker (toDirection action) True
+    Down           -> moveWorker (toDirection action) True
+    Left           -> moveWorker (toDirection action) True
+    Right          -> moveWorker (toDirection action) True
     Restart        -> restartLevel
     Undo           -> undoMove
     Redo           -> redoMove
@@ -131,8 +134,10 @@ calculateAndMoveWorker :: MonadState GameState m => Point -> m ()
 calculateAndMoveWorker dst = do
   src <- use $ levelState . worker
   let isAccessible p = isEmptyOrGoal <$> getCell p
-  path <- aStarFind src dst isAccessible
-  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show path <> "      ")
+  points <- aStarFind src dst isAccessible
+  viewState . directions .= pathToDirections points
+  levelState . message .=
+    T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show (pathToDirections points) <> "      ")
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
@@ -141,7 +146,7 @@ dumpState = do
   let msg1 = "uidx: " <> show uidx <> "\n"
   let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
   levelState . message .= T.pack msg2
-  return ()
+  viewState . doClearScreen .= True
 
 restartLevel :: MonadState GameState m => m ()
 restartLevel = do
@@ -156,7 +161,7 @@ restartLevel = do
       levelState . undoStack .= []
       levelState . undoIndex .= -1
       levelState . message .= ""
-  return ()
+  viewState . doClearScreen .= True
 
 switchLevel :: MonadState GameState m => Int -> m ()
 switchLevel di = do
@@ -170,6 +175,7 @@ switchLevel di = do
   forM_ (initial (levels !! newIdx)) $ \l -> do
     index .= newIdx
     levelState .= l
+  viewState . doClearScreen .= True
 
 redoMove :: MonadState GameState m => m ()
 redoMove = do
@@ -177,7 +183,7 @@ redoMove = do
   uidx <- use $ levelState . undoIndex
   when (0 < uidx && uidx <= length undos) $ do
     let diff = undos !! (uidx - 1)
-    moveWorker (diff ^. direction) True
+    moveWorker (diff ^. direction) False
     levelState . undoIndex .= uidx - 1
 
 undoMove :: MonadState GameState m => m ()
@@ -202,46 +208,56 @@ undoMove = do
         levelState . boxes .= b
         levelState . goals .= h
 
-moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
-moveWorker d redoing = do
+doMove :: MonadState GameState m => Direction -> m (Maybe Diff)
+doMove d = do
   ls <- use levelState
-  let allowToMove = not $ ls ^. isComplete
-  when allowToMove $ do
-    let point0 = ls ^. worker
-    let point1 = moveToDir point0 d
-    let point2 = moveToDir point1 d
-    c0' <- getCell point0
-    c1 <- getCell point1
-    c2 <- getCell point2
-    let c0 = directWorker d c0'
+  if not $ ls ^. isComplete -- if allow to move
+    then do
+      let point0 = ls ^. worker
+      let point1 = moveToDir point0 d
+      let point2 = moveToDir point1 d
+      c0' <- getCell point0
+      c1 <- getCell point1
+      c2 <- getCell point2
+      let c0 = directWorker d c0'
     -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnGoal cell
-    let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
-    case moveStatus of
-      Just True
+      let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
+      case moveStatus of
+        Just True
         -- moved both worker and box
-       -> do
-        levelState . boxes %= (S.insert point2 . S.delete point1)
-        levelState . worker .= point1
-        updateCell point0 d0
-        updateCell point1 d1
-        updateCell point2 d2
-      Just False
+         -> do
+          levelState . boxes %= (S.insert point2 . S.delete point1)
+          levelState . worker .= point1
+          updateCell point0 d0
+          updateCell point1 d1
+          updateCell point2 d2
+        Just False
         -- moved worker only
-       -> do
-        levelState . worker .= point1
-        updateCell point0 d0
-        updateCell point1 d1
-      Nothing
+         -> do
+          levelState . worker .= point1
+          updateCell point0 d0
+          updateCell point1 d1
+        Nothing
         -- nothing moved (but the worker could change the direction)
-       -> updateCell point0 d0
-    unless redoing $
-      -- now update the undo stack
-      -- this variant makes redirections also to be recorded and undoable
-      -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-      -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
-     do
-      let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-      when ((d0, d1, d2) /= (c0, c1, c2)) $ do
+         -> updateCell point0 d0
+      return $
+        if (d0, d1, d2) /= (c0, c1, c2)
+          then Just $ Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+          else Nothing
+    else return Nothing
+
+moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
+moveWorker d storeUndo = do
+  diff' <- doMove d
+  -- now update the undo stack
+  -- this variant makes redirections also to be recorded and undoable
+  -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+  -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+  case diff' of
+    Nothing -> return ()
+    Just diff ->
+      when storeUndo $ do
+        ls <- use levelState
         let uidx = ls ^. undoIndex
         -- undoStack: [diff3, diff2, diff1, diff0]  =>  [diff, d1, d0]
         -- undoIndex:                 ^2^           =>    ^0^

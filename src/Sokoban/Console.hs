@@ -18,11 +18,11 @@ import Data.Char              (isDigit)
 import Data.List              (isSuffixOf, stripPrefix)
 import Data.Maybe             (fromMaybe, isJust)
 import Data.Vector            ((!))
-import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
-                               isEmptyOrGoal, isWorker, levels, deriveDir)
-import Sokoban.Model          (GameState(..), ViewState(..), cells, clicks, destinations, getCell,
-                               height, id, initial, levelState, levelState, message, step,
-                               viewState, width, worker)
+import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), deriveDir,
+                               isBox, isEmptyOrGoal, isWorker, levels)
+import Sokoban.Model          (GameState(..), ViewState(..), cells, clicks, destinations,
+                               directions, doAnimate, doClearScreen, getCell, height, id, initial,
+                               levelState, levelState, message, step, viewState, width, worker, moveWorker)
 import Sokoban.Parser         (parseLevels, splitWith)
 import Sokoban.Resources      (yoshiroAutoCollection)
 import Sokoban.Solver         (aStarFind)
@@ -36,6 +36,12 @@ import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
+
+whenWith :: Monad m => a -> (a -> Bool) -> (a -> m a) -> m a
+whenWith a p runA =
+  if p a
+    then runA a
+    else return a
 
 runConsoleGame :: IO ()
 runConsoleGame =
@@ -81,12 +87,13 @@ buildGameState args = do
       { _collection = levelCollection
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
-      , _viewState = ViewState [] S.empty
+      , _viewState = ViewState False False [] S.empty []
       }
 
 gameLoop :: GameState -> IO ()
-gameLoop gs = do
-  -- if we need to draw multiple 
+gameLoop gs
+  -- if we need to draw multiple
+ = do
   moveCursorToOrigin
   render gs
   key <- getKey
@@ -107,13 +114,29 @@ gameLoop gs = do
               case interpretClick gs key of
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
-    -- this is to avoid artifacts from rendering another level or debug
-    case key of
-      k
-        | k `elem` ["\ESC[5~", "\ESC[6~", "d", "r"] -> clearScreen
-      _ -> return ()
-    gameLoop gs1
+    -- perform animation if needed
+    gs2 <- whenWith gs1 (^. (viewState . doAnimate)) $ \gs -> do
+        gs <- animate gs
+        return $ gs 
+          & viewState . doAnimate .~ False
+          & viewState . directions .~ []
+          & viewState . destinations .~ S.empty
+    -- clear screen if needed
+    gs3 <-
+      whenWith gs2 (^. (viewState . doClearScreen)) $ \gs -> do
+        clearScreen
+        return $ gs & viewState . doClearScreen .~ False
+    gameLoop gs3
 
+animate :: GameState -> IO GameState
+animate gs = do
+--  forM_ gss $ \g -> do
+--    render g
+--    threadDelay 100000
+  return gs
+
+--  return $ finalGs
+--    & viewState . doAnimate .~ False
 interpretClick :: GameState -> String -> (Maybe A.Action, GameState)
 interpretClick gs key = runState runInterpretClick gs
   where

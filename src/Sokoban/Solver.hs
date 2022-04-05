@@ -15,7 +15,7 @@ import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
 import Control.Monad       (filterM, forM_, when)
 import Control.Monad.State (StateT, evalStateT, gets, lift)
-import Sokoban.Level       (Direction(..), Point(..), moveToDir)
+import Sokoban.Level       (Direction(..), Point(..), deriveDir, moveToDir)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
@@ -82,6 +82,12 @@ aStarFindRec dst isAccessible = do
            -> openList .= Q.insert np f1 w1 openList0
       aStarFindRec dst isAccessible
 
+heuristic :: Point -> Point -> Int
+heuristic next dst =
+  let Point i1 j1 = next
+      Point i2 j2 = dst
+   in abs (i1 - i2) + abs (j1 - j2)
+
 backtrace :: Point -> H.HashMap Point Point -> [Point]
 backtrace dst closedList
     -- we repeatedly lookup for the parent of the current node
@@ -94,8 +100,12 @@ backtrace dst closedList
           | current == parent -> acc
         Just parent -> backtraceRec parent (parent : acc)
 
-heuristic :: Point -> Point -> Int
-heuristic next dst =
-  let Point i1 j1 = next
-      Point i2 j2 = dst
-   in abs (i1 - i2) + abs (j1 - j2)
+pathToDirections :: [Point] -> [Direction]
+pathToDirections ps = reverse $ convert ps []
+  where
+    convert [] _acc = []
+    convert [_] acc = acc
+    convert (p1:p2:ps) acc =
+      case deriveDir p1 p2 of
+        Nothing -> acc
+        Just d  -> convert (p2 : ps) (d : acc)
