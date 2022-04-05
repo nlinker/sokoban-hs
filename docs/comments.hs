@@ -26,17 +26,13 @@ aStarFind src dst = do
            msg1 = "action = " <> show action
         in T.pack (msg1 <> replicate (nm - length msg1) ' '))
 -}
-
 -- debug example
-
 --  let hs = gs ^. goals
 --  let bs = gs ^. boxes
 --  let isc = gs ^. isComplete
 --  putStrLn $ "hs = " <> show hs <> " bs = " <> show bs <> " isComplete = " <> show isc
 --  forM_ [0 .. gs ^. height + 21] $ \_ -> putStr "\ESC[A"
 -- gs & levelState . message .~ T.pack (show c)
-
-
 {-
 import Sokoban.Model       (GameState, Point(..), cells, height, initial, name, step, width, goals, boxes, isComplete, extractWBH)
 import Sokoban.Parser      (parseLevel, rawLevel, rawLevelSimple)
@@ -257,8 +253,6 @@ getMagic (F _i _c _d) = 3
 youtube-dl -a urls.txt --write-thumbnail --skip-download
 
 -}
-
-
 {--
   case buildPath (pd1 ^. cameFrom) of
     Nothing   -> return Nothing
@@ -325,5 +319,29 @@ calculateAndMoveWorker dst = do
   where
     isAccessible :: MonadState GameState m => Point -> m Bool
     isAccessible p = isEmptyOrGoal <$> getCell p
+
+doMove :: MonadState GameState m => Direction -> m (Maybe Diff)
+doMove d = runDoMove -- execState undoMoveM gameState
+  where
+    runDoMove = do ...
+
+undoMove :: MonadState GameState m => Diff -> m ()
+undoMove diff = runUndoMove -- execState undoMoveM gameState
+  where
+    runUndoMove = do ...
+
+-- now update the undo stack
+-- this variant makes redirections also to be recorded and undoable
+-- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
+-- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
+
+[ [Empty, Wall, Wall, Wall, Wall, Wall, Wall]
+, [Wall, Wall, Empty, Empty, Goal, Empty, Wall]
+, [Wall, Empty, BoxOnGoal, Empty, Wall, Empty, Wall]
+, [Wall, Empty, Goal, Box, Empty, Empty, Wall]
+, [Wall, Empty, Worker U, Wall, Box, Wall, Wall]
+, [Wall, Wall, Empty, Worker L, Empty, Wall, Empty]
+, [Empty, Wall, Wall, Wall, Wall, Wall, Empty]
+]
 
 -}

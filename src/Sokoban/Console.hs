@@ -20,10 +20,10 @@ import Data.Maybe             (fromMaybe, isJust)
 import Data.Vector            ((!))
 import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), deriveDir,
                                isBox, isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model          (GameState(..), ViewState(..), cells, clicks, destinations,
-                               directions, doAnimate, doClearScreen, doMove, getCell, height, id,
-                               initial, levelState, levelState, message, step, viewState, width,
-                               worker)
+import Sokoban.Model          (GameState(..), ViewState(..), animateForward, animateRequired, cells,
+                               clicks, destinations, direction, doClearScreen, doMove, getCell,
+                               height, id, initial, levelState, levelState, message, step,
+                               undoIndex, undoMove, undoStack, viewState, width, worker, _UndoItem)
 import Sokoban.Parser         (parseLevels, splitWith)
 import Sokoban.Resources      (yoshiroAutoCollection)
 import Sokoban.Solver         (aStarFind)
@@ -38,10 +38,10 @@ import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
 
-whenWith :: Monad m => a -> (a -> Bool) -> (a -> m a) -> m a
+whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
   if p a
-    then runA a
+    then runA
     else return a
 
 -- | run console gane
@@ -89,59 +89,79 @@ buildGameState args = do
       { _collection = levelCollection
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
-      , _viewState = ViewState False False [] S.empty []
+      , _viewState = ViewState False [] S.empty False False
       }
 
 gameLoop :: GameState -> IO ()
-gameLoop gs
+gameLoop gs0
   -- if we need to draw multiple
  = do
   moveCursorToOrigin
-  render gs
+  render gs0
   key <- getKey
   when (key /= "\ESC") $ do
     let gs1 =
           case key of
-            "\ESC[A" -> step gs A.Up
-            "\ESC[B" -> step gs A.Down
-            "\ESC[C" -> step gs A.Right
-            "\ESC[D" -> step gs A.Left
-            "u" -> step gs A.Undo
-            "i" -> step gs A.Redo
-            "r" -> step gs A.Restart
-            "\ESC[5~" -> step gs A.PrevLevel
-            "\ESC[6~" -> step gs A.NextLevel
-            "d" -> step gs A.Debug
+            "\ESC[A" -> step gs0 A.Up
+            "\ESC[B" -> step gs0 A.Down
+            "\ESC[C" -> step gs0 A.Right
+            "\ESC[D" -> step gs0 A.Left
+            "u" -> step gs0 A.Undo
+            "i" -> step gs0 A.Redo
+            "r" -> step gs0 A.Restart
+            "\ESC[5~" -> step gs0 A.PrevLevel
+            "\ESC[6~" -> step gs0 A.NextLevel
+            "d" -> step gs0 A.Debug
             _ ->
-              case interpretClick gs key of
+              case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
     -- perform animation if needed
-    gs2 <- whenWith gs1 (^. (viewState . doAnimate)) animate
+    gs2 <-
+      whenWith gs1 (^. (viewState . animateRequired)) $ do
+        animate gs0 gs1
+        return $ gs1 
+          & viewState . animateRequired .~ False 
+          & viewState . animateForward .~ False
     -- clear screen if needed
     gs3 <-
-      whenWith gs2 (^. (viewState . doClearScreen)) $ \gs -> do
+      whenWith gs2 (^. (viewState . doClearScreen)) $ do
         clearScreen
-        return $ gs & viewState . doClearScreen .~ False
+        return $ gs2 & viewState . doClearScreen .~ False
     gameLoop gs3
 
-animate :: GameState -> IO GameState
-animate finalGs = do
-  let dirs = finalGs ^. viewState . directions
-  _ <- animateRec finalGs dirs
-  return $ finalGs & viewState . doAnimate .~ False & viewState . directions .~ [] & viewState . destinations .~ S.empty
+animate :: GameState -> GameState -> IO ()
+animate gsFrom gsTo = do
+  let undos = gsTo ^. levelState . undoStack
+  let uidx = gsTo ^. levelState . undoIndex
+  if gsTo ^. viewState . animateForward
+    then
+      -- when (0 < uidx && uidx <= length undos) $ do
+      when True $ do
+        let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
+        animateDo gsFrom dirs
+    else
+      -- when (0 <= uidx && uidx < length undos) $ do
+      when True $ do
+        let diffs = reverse $ (undos !! (uidx - 1)) ^. _UndoItem
+        animateUndo gsFrom diffs
   where
-    animateRec :: GameState -> [Direction] -> IO GameState
-    animateRec gs [] = return gs
-    animateRec gs (d:ds) = do
-      let gs1 = execState (doMove d) gs
+    animateDo _ [] = return ()
+    animateDo gs (dir:dirs) = do
+      let gs2 = execState (doMove dir) gs
       moveCursorToOrigin
-      render gs1
-      threadDelay 50000
-      animateRec gs1 ds
+      render gs2
+      threadDelay (50 * 1000)
+      animateDo gs2 dirs
+    
+    animateUndo _ [] = return ()
+    animateUndo gs (diff:diffs) = do
+      let gs2 = execState (undoMove diff) gs
+      moveCursorToOrigin
+      render gs2
+      threadDelay (50 * 1000)
+      animateUndo gs2 diffs
 
---  return $ finalGs
---    & viewState . doAnimate .~ False
 interpretClick :: GameState -> String -> (Maybe A.Action, GameState)
 interpretClick gs key = runState runInterpretClick gs
   where

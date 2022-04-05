@@ -14,7 +14,7 @@ import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
 import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
-import Control.Lens.TH     (makeLenses)
+import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (forM_, when)
 import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
@@ -27,6 +27,7 @@ import qualified Data.Text     as T
 import qualified Data.Vector   as V
 import qualified Sokoban.Level as L (cells, height, id, width)
 import qualified Text.Builder  as TB
+import Debug.Trace (traceM)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -45,6 +46,8 @@ makeLenses ''Diff
 newtype UndoItem =
   UndoItem [Diff]
   deriving (Eq, Show)
+
+makePrisms ''UndoItem
 
 data LevelState =
   LevelState
@@ -67,11 +70,11 @@ makeLenses ''LevelState
 
 data ViewState =
   ViewState
-    { _doAnimate     :: !Bool
-    , _doClearScreen :: !Bool
-    , _clicks        :: ![Point]
-    , _destinations  :: S.HashSet Point
-    , _directions    :: ![Direction]
+    { _doClearScreen   :: !Bool
+    , _clicks          :: ![Point]
+    , _destinations    :: S.HashSet Point
+    , _animateRequired :: !Bool
+    , _animateForward  :: !Bool 
     }
   deriving (Eq, Show)
 
@@ -180,7 +183,7 @@ doMove d = do
       c1 <- getCell point1
       c2 <- getCell point2
       let c0 = directWorker d c0'
-    -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnGoal cell
+      -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnGoal cell
       let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
       case moveStatus of
         Just True
@@ -215,22 +218,6 @@ undoMove diff = do
   updateCell point1 $ diff ^. cell1
   updateCell point2 $ diff ^. cell2
 
-calculatePathMoveWorker :: MonadState GameState m => Point -> m ()
-calculatePathMoveWorker dst = do
-  src <- use $ levelState . worker
-  let isAccessible p = isEmptyOrGoal <$> getCell p
-  dirs <- pathToDirections <$> aStarFind src dst isAccessible
-  diffs' <- sequenceA <$> mapM doMove dirs
-  case diffs' of
-    Nothing -> return ()
-    Just [] -> return ()
-    Just diffs -> do
-      levelState . undoStack %= (UndoItem diffs :)
-      levelState . undoIndex .= 0
-  viewState . directions .= dirs
-  viewState . doAnimate .= True
-  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show dirs <> "      ")
-
 redoMoveWorker :: MonadState GameState m => m ()
 redoMoveWorker = do
   undos <- use $ levelState . undoStack
@@ -238,6 +225,9 @@ redoMoveWorker = do
   when (0 < uidx && uidx <= length undos) $ do
     let UndoItem diffs = undos !! (uidx - 1)
     forM_ diffs $ doMove . (^. direction)
+    when (length diffs > 1) $ do
+      viewState . animateRequired .= True
+      viewState . animateForward .= True
     levelState . undoIndex .= uidx - 1
 
 undoMoveWorker :: MonadState GameState m => m ()
@@ -248,25 +238,40 @@ undoMoveWorker = do
     let UndoItem diffs = undos !! uidx
     forM_ (reverse diffs) undoMove
     when (length diffs > 1) $ do
-      viewState . directions .= map (^. direction) (reverse diffs)
-      viewState . doAnimate .= True
+      viewState . animateRequired .= True
+      viewState . animateForward .= False
     levelState . undoIndex .= uidx + 1
-    -- rebuild levelState
-    cells <- use (levelState . cells)
-    case extractWBH cells of
-      Nothing -> error $ "Invariant violation: " <> show cells
-      Just (w, b, h) -> do
-        levelState . worker .= w
-        levelState . boxes .= b
-        levelState . goals .= h
+  -- rebuild levelState
+  cells <- use (levelState . cells)
+  case extractWBH cells of
+    Nothing -> error $ "Invariant violation: " <> show cells
+    Just (w, b, h) -> do
+      levelState . worker .= w
+      levelState . boxes .= b
+      levelState . goals .= h
+
+calculatePathMoveWorker :: MonadState GameState m => Point -> m ()
+calculatePathMoveWorker dst = do
+  src <- use $ levelState . worker
+  let isAccessible p = isEmptyOrGoal <$> getCell p
+  dirs <- pathToDirections <$> aStarFind src dst isAccessible
+  diffs' <- sequenceA <$> mapM doMove dirs
+  -- traceM $ "\ndiffs' = " <> show diffs' 
+  case diffs' of
+    Nothing -> return ()
+    Just [] -> return ()
+    Just diffs -> do
+      ls <- use levelState
+      let uidx = ls ^. undoIndex
+      levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
+      levelState . undoIndex .= 0
+  viewState . animateRequired .= True
+  viewState . animateForward .= True
+  -- levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show dirs <> "      ")
 
 moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
 moveWorker d storeUndo = do
   diff' <- doMove d
-  -- now update the undo stack
-  -- this variant makes redirections also to be recorded and undoable
-  -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-  -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
   case diff' of
     Nothing -> return ()
     Just diff ->

@@ -23,7 +23,7 @@ gs =
     { _collection = yoshiroAutoCollection
     , _index = 0
     , _levelState = fromJust $ initial $ head $ yoshiroAutoCollection ^. levels
-    , _viewState = ViewState False False [] S.empty []
+    , _viewState = ViewState False [] S.empty False False
     }
 
 spec :: Spec
