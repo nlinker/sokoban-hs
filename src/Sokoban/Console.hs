@@ -135,16 +135,14 @@ animate gsFrom gsTo = do
   let undos = gsTo ^. levelState . undoStack
   let uidx = gsTo ^. levelState . undoIndex
   if gsTo ^. viewState . animateForward
-    then
       -- when (0 < uidx && uidx <= length undos) $ do
-      when True $ do
-        let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
-        animateDo gsFrom dirs
-    else
+    then when True $ do
+           let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
+           animateDo gsFrom dirs
       -- when (0 <= uidx && uidx < length undos) $ do
-      when True $ do
-        let diffs = reverse $ (undos !! (uidx - 1)) ^. _UndoItem
-        animateUndo gsFrom diffs
+    else when True $ do
+           let diffs = reverse $ (undos !! (uidx - 1)) ^. _UndoItem
+           animateUndo gsFrom diffs
   where
     animateDo _ [] = return ()
     animateDo gs (dir:dirs) = do
@@ -153,7 +151,6 @@ animate gsFrom gsTo = do
       render gs2
       threadDelay (50 * 1000)
       animateDo gs2 dirs
-    
     animateUndo _ [] = return ()
     animateUndo gs (diff:diffs) = do
       let gs2 = execState (undoMove diff) gs

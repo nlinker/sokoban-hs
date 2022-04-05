@@ -27,7 +27,6 @@ import qualified Data.Text     as T
 import qualified Data.Vector   as V
 import qualified Sokoban.Level as L (cells, height, id, width)
 import qualified Text.Builder  as TB
-import Debug.Trace (traceM)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -74,7 +73,7 @@ data ViewState =
     , _clicks          :: ![Point]
     , _destinations    :: S.HashSet Point
     , _animateRequired :: !Bool
-    , _animateForward  :: !Bool 
+    , _animateForward  :: !Bool
     }
   deriving (Eq, Show)
 
@@ -256,7 +255,7 @@ calculatePathMoveWorker dst = do
   let isAccessible p = isEmptyOrGoal <$> getCell p
   dirs <- pathToDirections <$> aStarFind src dst isAccessible
   diffs' <- sequenceA <$> mapM doMove dirs
-  -- traceM $ "\ndiffs' = " <> show diffs' 
+  -- traceM $ "\ndiffs' = " <> show diffs'
   case diffs' of
     Nothing -> return ()
     Just [] -> return ()
