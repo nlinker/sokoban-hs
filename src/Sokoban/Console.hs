@@ -13,7 +13,7 @@ import Control.Exception      (finally)
 import Control.Lens           (use, (&), (.=), (.~), (^.))
 import Control.Monad          (forM_, when)
 import Control.Monad.Identity (Identity, runIdentity)
-import Control.Monad.State    (MonadState, evalState, runState)
+import Control.Monad.State    (MonadState, evalState, execState, runState)
 import Data.Char              (isDigit)
 import Data.List              (isSuffixOf, stripPrefix)
 import Data.Maybe             (fromMaybe, isJust)
@@ -21,8 +21,9 @@ import Data.Vector            ((!))
 import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), deriveDir,
                                isBox, isEmptyOrGoal, isWorker, levels)
 import Sokoban.Model          (GameState(..), ViewState(..), cells, clicks, destinations,
-                               directions, doAnimate, doClearScreen, getCell, height, id, initial,
-                               levelState, levelState, message, step, viewState, width, worker, moveWorker)
+                               directions, doAnimate, doClearScreen, doMove, getCell, height, id,
+                               initial, levelState, levelState, message, step, viewState, width,
+                               worker)
 import Sokoban.Parser         (parseLevels, splitWith)
 import Sokoban.Resources      (yoshiroAutoCollection)
 import Sokoban.Solver         (aStarFind)
@@ -115,11 +116,12 @@ gameLoop gs
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
     -- perform animation if needed
-    gs2 <- whenWith gs1 (^. (viewState . doAnimate)) $ \gs -> do
+    gs2 <-
+      whenWith gs1 (^. (viewState . doAnimate)) $ \gs -> do
         gs <- animate gs
         return $ gs 
-          & viewState . doAnimate .~ False
-          & viewState . directions .~ []
+          & viewState . doAnimate .~ False 
+          & viewState . directions .~ [] 
           & viewState . destinations .~ S.empty
     -- clear screen if needed
     gs3 <-
@@ -130,10 +132,17 @@ gameLoop gs
 
 animate :: GameState -> IO GameState
 animate gs = do
---  forM_ gss $ \g -> do
---    render g
---    threadDelay 100000
-  return gs
+  let dirs = gs ^. viewState . directions
+  animateRec gs dirs
+  where
+    animateRec :: GameState -> [Direction] -> IO GameState
+    animateRec gs [] = return gs
+    animateRec gs (d:ds) = do
+      let gs1 = execState (doMove d) gs
+      moveCursorToOrigin
+      render gs1
+      threadDelay 50000
+      animateRec gs1 ds
 
 --  return $ finalGs
 --    & viewState . doAnimate .~ False

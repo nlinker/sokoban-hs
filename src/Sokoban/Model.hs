@@ -136,6 +136,7 @@ calculateAndMoveWorker dst = do
   let isAccessible p = isEmptyOrGoal <$> getCell p
   points <- aStarFind src dst isAccessible
   viewState . directions .= pathToDirections points
+  viewState . doAnimate .= True 
   levelState . message .=
     T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show (pathToDirections points) <> "      ")
 
