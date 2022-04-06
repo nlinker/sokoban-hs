@@ -100,7 +100,7 @@ data Action
   | Restart
   | PrevLevel
   | NextLevel
-  | SelectBox Point -- TODO or boxes?
+  | SelectBox Point -- TODO should it be here? If yes, then maybe select boxes?
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
   | Debug

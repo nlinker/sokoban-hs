@@ -192,8 +192,29 @@ interpretClick gs key = runState runInterpretClick gs
               | isBox c0 && isDestination c1 -> do
                 viewState . clicks .= []
                 return $ Just $ A.MoveBoxes [p0] [p1]
+              | isBox c0 && isBox c1 -> do
+                viewState . clicks .= [p1, p0]
+                return Nothing
               | otherwise -> do
                 viewState . clicks .= [] -- reset tracking clicks
+                return Nothing
+            ([p2, p1, p0], [c2, c1, c0])
+              | isBox c0 && isBox c1 && isDestination c2 -> do
+                viewState . clicks .= [p2, p1, p0]
+                return Nothing
+              | otherwise -> do
+                viewState . clicks .= []
+                return Nothing
+            ([p3, p2, p1, p0], [c3, c2, c1, c0])
+              | isBox c0 && isBox c1 && isDestination c2 && isDestination c3 -> do
+                viewState . clicks .= []
+                return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
+            ([p3, p2, p1, p0], [c3, c2, c1, c0])
+              | isBox c0 && isBox c1 && isDestination c2 && isBox c3 -> do
+                viewState . clicks .= []
+                return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
+              | otherwise -> do
+                viewState . clicks .= []
                 return Nothing
             _ -> do
               viewState . clicks .= [] -- reset tracking clicks
