@@ -15,12 +15,12 @@ import qualified Prelude as P
 
 import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
-import Control.Monad       (forM_, when)
+import Control.Monad       (filterM, forM_, when)
 import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
                             isEmptyOrGoal, isGoal, isWorker, levels, movePoint)
-import Sokoban.Solver      (aStarFind, pathToDirections)
+import Sokoban.Solver      (AStarSolver(..), aStarFind, pathToDirections)
 
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
@@ -264,11 +264,23 @@ moveWorker d storeUndo = do
         levelState . undoStack .= UndoItem [diff] : drop uidx (ls ^. undoStack)
         levelState . undoIndex .= 0
 
+--instance MonadState GameState m => AStarSolver Point where
+--  getNeighbors p0 = do
+--      let isAccessible p = isEmptyOrGoal <$> getCell p
+--      let neighs = map (movePoint p0) [U, D, L, R]
+--      filterM isAccessible neighs
+--  heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
   src <- use $ levelState . worker
-  let isAccessible p = isEmptyOrGoal <$> getCell p
-  dirs <- pathToDirections <$> aStarFind src dst isAccessible
+  let neighbors p0 = do
+        let isAccessible p = isEmptyOrGoal <$> getCell p
+        let neighs = map (movePoint p0) [U, D, L, R]
+        filterM isAccessible neighs
+  let distance np p0 = return $ fromEnum (np /= p0)
+  let heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
+  let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  dirs <- pathToDirections <$> aStarFind solver src dst
   diffs' <- sequenceA <$> mapM doMove dirs
   -- traceM $ "\ndiffs' = " <> show diffs'
   case diffs' of
@@ -289,10 +301,10 @@ calculateBoxReachability box = do
   when (S.member box boxez) undefined
 
 moveBoxes :: MonadState GameState m => [Point] -> [Point] -> m ()
-moveBoxes src dst = do 
-  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")" )
+moveBoxes src dst = do
+  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")")
   viewState . doClearScreen .= True
-  
+
 toDirection :: Action -> Direction
 toDirection a =
   case a of

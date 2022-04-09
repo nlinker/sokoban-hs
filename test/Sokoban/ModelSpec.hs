@@ -6,11 +6,11 @@ import Control.Monad.Identity (runIdentity)
 import Control.Monad.State    (evalState)
 import Data.Maybe             (fromJust)
 import Sokoban.Console        (interpretClick, render)
-import Sokoban.Level          (Direction(..), Point(..), isEmptyOrGoal, levels)
+import Sokoban.Level          (Direction(..), Point(..), isEmptyOrGoal, levels, movePoint)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initial, levelState,
                                viewState, worker)
 import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (aStarFind, pathToDirections)
+import Sokoban.Solver         (AStarSolver(..), aStarFind, pathToDirections)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
@@ -69,6 +69,13 @@ spec = do
       let points = []
       pathToDirections points `shouldBe` []
   where
-    aStarTest src dst = runIdentity $ aStarFind src dst isAccessible
-    isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs
     mouse i j = "\ESC[<0;" <> show (j * 2 + 1) <> ";" <> show (i + 2) <> "m"
+    aStarTest src dst = runIdentity $ aStarFind solver src dst
+    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+    heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
+    distance np p0 = return $ fromEnum (np /= p0)
+    neighbors p0 =
+      return $ do
+        let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+        let neighs = map (movePoint p0) [U, D, L, R]
+        filter isAccessible neighs

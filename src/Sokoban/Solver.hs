@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
@@ -13,46 +15,53 @@ import Prelude hiding (Left, Right, id)
 
 import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
-import Control.Monad       (filterM, forM_, when)
+import Control.Monad       (forM_, when)
 import Control.Monad.State (StateT, evalStateT, gets, lift)
-import Sokoban.Level       (Direction(..), Point(..), deriveDir, movePoint)
+import Data.Hashable       (Hashable)
+import Sokoban.Level       (Direction(..), Point(..), deriveDir)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
 
-data Weight =
+data Weight p =
   Weight
     { _fScore :: Int
     , _gScore :: Int
-    , _parent :: Point
+    , _parent :: p
     }
   deriving (Eq, Show)
+
+data AStar p =
+  AStar
+    { _openList   :: Q.HashPSQ p Int (Weight p)
+    , _closedList :: H.HashMap p p
+    }
+  deriving (Eq, Show)
+
+data AStarSolver m p where
+  AStarSolver :: (Monad m, Hashable p, Ord p) =>
+    { neighbors :: p -> m [p]
+    , distance  :: p -> p -> m Int -- for adjacent points only
+    , heuristic :: p -> p -> Int
+    } -> AStarSolver m p
 
 makeLenses ''Weight
-
-data AStar =
-  AStar
-    { _openList   :: Q.HashPSQ Point Int Weight
-    , _closedList :: H.HashMap Point Point
-    }
-  deriving (Eq, Show)
-
 makeLenses ''AStar
 
-aStarInit :: Point -> AStar
+aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> m [p]
+aStarFind solver src dst = do
+  let astar = aStarInit src
+  evalStateT (aStarFindRec solver dst) astar
+
+aStarInit :: (Hashable p, Ord p) => p -> AStar p
 aStarInit src =
   let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
       openList = Q.singleton src (weight ^. fScore) weight
-      closedList = H.empty :: H.HashMap Point Point
+      closedList = H.empty :: H.HashMap p p
    in AStar openList closedList
 
-aStarFind :: Monad m => Point -> Point -> (Point -> m Bool) -> m [Point]
-aStarFind src dst isAccessible = do
-  let astar = aStarInit src
-  evalStateT (aStarFindRec dst isAccessible) astar
-
-aStarFindRec :: Monad m => Point -> (Point -> m Bool) -> StateT AStar m [Point]
-aStarFindRec dst isAccessible = do
+aStarFindRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> StateT (AStar p) m [p]
+aStarFindRec solver dst = do
   openList0 <- use openList
   closedList0 <- use closedList
   case Q.findMin openList0 of
@@ -64,12 +73,13 @@ aStarFindRec dst isAccessible = do
     Just (p0, _, weight0) -> do
       openList %= Q.delete p0
       closedList %= H.insert p0 (weight0 ^. parent)
-      let neighs = filter (not . (`H.member` closedList0)) $ map (movePoint p0) [U, D, L, R]
-      neighbors <- filterM (lift . isAccessible) neighs
+      neighbors <- lift $ neighbors solver p0
+      let neighPoints = filter (not . (`H.member` closedList0)) neighbors
       -- `k` is the current node, `fs` is f-score
-      forM_ neighbors $ \np -> do
-        let g1 = weight0 ^. gScore + fromEnum (np /= p0)
-        let f1 = g1 + heuristic np dst
+      forM_ neighPoints $ \np -> do
+        dist <- lift $ distance solver np p0
+        let g1 = weight0 ^. gScore + dist
+        let f1 = g1 + heuristic solver np dst
         let p1 = p0
         let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
         case Q.lookup np openList0 of
@@ -80,15 +90,11 @@ aStarFindRec dst isAccessible = do
           Nothing
             -- the neighbour is new
            -> openList .= Q.insert np f1 w1 openList0
-      aStarFindRec dst isAccessible
+      aStarFindRec solver dst
 
-heuristic :: Point -> Point -> Int
-heuristic next dst =
-  let Point i1 j1 = next
-      Point i2 j2 = dst
-   in abs (i1 - i2) + abs (j1 - j2)
-
-backtrace :: Point -> H.HashMap Point Point -> [Point]
+--      let neighs = filter (not . (`H.member` closedList0)) $ map (movePoint p0) [U, D, L, R]
+--      neighbors <- filterM (lift . isAccessible) neighs
+backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
 backtrace dst closedList
     -- we repeatedly lookup for the parent of the current node
  = backtraceRec dst [dst]

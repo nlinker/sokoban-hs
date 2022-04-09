@@ -12,21 +12,21 @@ import Control.Concurrent     (threadDelay)
 import Control.Exception      (finally)
 import Control.Lens           (use, (&), (.=), (.~), (^.))
 import Control.Monad          (forM_, when)
-import Control.Monad.Identity (Identity, runIdentity)
+import Control.Monad.Identity (runIdentity)
 import Control.Monad.State    (MonadState, evalState, execState, runState)
 import Data.Char              (isDigit)
 import Data.List              (isSuffixOf, stripPrefix)
 import Data.Maybe             (fromMaybe, isJust)
 import Data.Vector            ((!))
 import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), deriveDir,
-                               isBox, isEmptyOrGoal, isWorker, levels)
+                               isBox, isEmptyOrGoal, isWorker, levels, movePoint)
 import Sokoban.Model          (GameState(..), ViewState(..), animateForward, animateRequired, cells,
                                clicks, destinations, direction, doClearScreen, doMove, getCell,
                                height, id, initial, levelState, levelState, message, step,
                                undoIndex, undoMove, undoStack, viewState, width, worker, _UndoItem)
 import Sokoban.Parser         (parseLevels, splitWith)
 import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (aStarFind)
+import Sokoban.Solver         (AStarSolver(..), aStarFind)
 import System.Console.ANSI    (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment     (getArgs)
@@ -44,7 +44,7 @@ whenWith a p runA =
     then runA
     else return a
 
--- | run console gane
+-- | run console game
 run :: IO ()
 run =
   do args <- getArgs
@@ -319,9 +319,15 @@ runTest = do
   gs <- buildGameState []
   let src = gs ^. levelState . worker
   let dst = Point 2 1
-  let isAccessible :: Point -> Identity Bool
-      isAccessible p = return $ evalState (isEmptyOrGoal <$> getCell p) gs
-  let path = runIdentity $ aStarFind src dst isAccessible
+  let neighbors p0 =
+        return $ do
+          let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+          let neighs = map (movePoint p0) [U, D, L, R]
+          filter isAccessible neighs
+  let distance np p0 = return $ fromEnum (np /= p0)
+  let heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
+  let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  let path = runIdentity $ aStarFind solver src dst
   clearScreen
   _ <- moveWorker gs path
   print path
