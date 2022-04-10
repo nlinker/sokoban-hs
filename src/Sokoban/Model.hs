@@ -7,6 +7,7 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# LANGUAGE LambdaCase            #-}
 
 module Sokoban.Model where
 
@@ -16,17 +17,64 @@ import qualified Prelude as P
 import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (filterM, forM_, when)
+import Control.Monad.ST    (ST, runST)
 import Control.Monad.State (MonadState, execState)
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
                             isEmptyOrGoal, isGoal, isWorker, levels, movePoint)
 import Sokoban.Solver      (AStarSolver(..), aStarFind, pathToDirections)
 
-import qualified Data.HashSet  as S
-import qualified Data.Text     as T
-import qualified Data.Vector   as V
-import qualified Sokoban.Level as L (cells, height, id, width)
-import qualified Text.Builder  as TB
+import qualified Data.HashSet                as S
+import qualified Data.Text                   as T
+import qualified Data.Vector                 as V
+import qualified Data.Vector.Unboxed         as VU
+import qualified Data.Vector.Unboxed.Mutable as VM
+import qualified Sokoban.Level               as L (cells, height, id, width)
+import qualified Text.Builder                as TB
+
+import qualified Data.HashTable.Class     as H
+import qualified Data.HashTable.ST.Cuckoo as CuckooHash
+import Data.Hashable (Hashable(..))
+
+type Hashtable s k v = CuckooHash.HashTable s k v
+
+instance (VU.Unbox a, Hashable a) => Hashable (VU.Vector a) where
+  hashWithSalt salt = hashWithSalt salt . VU.toList
+  {-# INLINE hashWithSalt #-}
+
+-- MV.STVector s Int
+makeHT :: ST s (Hashtable s (VU.Vector Int) Int)
+makeHT = do
+  ht <- H.new
+  forM_ [0 .. 9] $ \key -> do
+    let vec = VU.replicate 10 0
+    vec0 <- VU.thaw vec
+    VM.write vec0 key (key + 1)
+    vecf <- VU.freeze vec0
+    H.mutate ht vecf $ \case
+      Nothing -> (Just 0, ())
+      Just _ -> (Just 0, ())
+  pure ht
+
+makeAssocList :: [(VU.Vector Int, Int)]
+makeAssocList =
+  runST $ do
+    ht <- makeHT
+    H.toList ht
+
+--import Control.Monad.ST
+--import Data.Foldable
+--import Data.Vector.Unboxed
+--import Data.Vector.Unboxed.Mutable
+--
+--import qualified Data.IntMap.Strict as IM
+--import qualified Data.Vector.Unboxed.Mutable as V
+--
+--intMapToVector :: Unbox v' => v' -> (v -> v') -> Int -> IM.IntMap v -> Vector v'
+--intMapToVector i vconv sz m = runST $ do
+--	vec <- sz `V.replicate` i
+--	for_ (IM.toList m) $ \(k, v) -> write vec k (vconv v)
+--	freeze vec
 
 type MatrixCell = Vector (Vector Cell)
 

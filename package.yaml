@@ -18,6 +18,7 @@ library:
     - Sokoban.Model
     - Sokoban.Parser
     - Sokoban.Resources
+    - Sokoban.Solver
     - Helper
   other-modules:
     - Paths_sokoban
@@ -48,6 +49,7 @@ dependencies:
     - Cabal
     - extra
     - hashable
+    - hashtables
     - MonadRandom
     - mtl
     - rainbox
