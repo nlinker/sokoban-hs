@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Sokoban.ModelSpec where
 
 import Control.Arrow          (second)
@@ -69,7 +70,7 @@ spec = do
       let points = []
       pathToDirections points `shouldBe` []
   where
-    mouse i j = "\ESC[<0;" <> show (j * 2 + 1) <> ";" <> show (i + 2) <> "m"
+    mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 1) <> ";" <> show (i + 2) <> "m"
     aStarTest src dst = runIdentity $ aStarFind solver src dst
     solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
     heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)

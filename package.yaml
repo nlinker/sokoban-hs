@@ -38,7 +38,9 @@ tests:
       - test
     dependencies:
       - sokoban
+      - criterion
       - hspec
+      - mwc-random
       - QuickCheck
       - quickcheck-instances
 
@@ -47,6 +49,7 @@ dependencies:
     - base
     - bytestring
     - Cabal
+    - deepseq
     - extra
     - hashable
     - hashtables
@@ -62,4 +65,4 @@ dependencies:
     - vector
     - lens
     - psqueues
-
+    - stm-containers
