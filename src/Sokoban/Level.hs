@@ -78,6 +78,14 @@ movePoint p d =
     L -> p & _Point . _2 +~ -1
     R -> p & _Point . _2 +~ 1
 
+opposite :: Direction -> Direction
+opposite d =
+  case d of
+    U -> D
+    D -> U
+    L -> R
+    R -> L
+
 deriveDir :: Point -> Point -> Maybe Direction
 deriveDir (Point i1 j1) (Point i2 j2) =
   case (i2 - i1, j2 - j1) of

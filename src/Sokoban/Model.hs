@@ -6,8 +6,9 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# LANGUAGE LambdaCase            #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Model where
 
@@ -22,7 +23,7 @@ import Control.Monad.State (MonadState, execState)
 import Data.Hashable       (Hashable(..))
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
-                            isEmptyOrGoal, isGoal, isWorker, levels, movePoint)
+                            isEmptyOrGoal, isGoal, isWorker, levels, movePoint, opposite)
 import Sokoban.Solver      (AStarSolver(..), aStarFind, pathToDirections)
 
 import qualified Data.HashSet                as S
@@ -39,21 +40,14 @@ type MatrixCell = Vector (Vector Cell)
 
 data Diff =
   Diff
-    { _point     :: !Point
-    , _direction :: !Direction
-    , _cell0     :: !Cell
-    , _cell1     :: !Cell
-    , _cell2     :: !Cell
+    { _direction :: !Direction
+    , _isPush    :: !Bool
     }
   deriving (Eq, Show)
-
-makeLenses ''Diff
 
 newtype UndoItem =
   UndoItem [Diff]
   deriving (Eq, Show)
-
-makePrisms ''UndoItem
 
 data LevelState =
   LevelState
@@ -72,8 +66,6 @@ data LevelState =
     }
   deriving (Eq, Show)
 
-makeLenses ''LevelState
-
 data ViewState =
   ViewState
     { _doClearScreen   :: !Bool
@@ -84,8 +76,6 @@ data ViewState =
     }
   deriving (Eq, Show)
 
-makeLenses ''ViewState
-
 data GameState =
   GameState
     { _collection :: !LevelCollection
@@ -94,6 +84,14 @@ data GameState =
     , _viewState  :: !ViewState
     }
   deriving (Eq, Show)
+
+makeLenses ''Diff
+
+makePrisms ''UndoItem
+
+makeLenses ''LevelState
+
+makeLenses ''ViewState
 
 makeLenses ''GameState
 
@@ -130,6 +128,7 @@ runStep action = do
     NextLevel         -> switchLevel (0 + 1)
     MoveWorker dst    -> moveWorkerAlongPath dst
     MoveBoxes src dst -> moveBoxes src dst
+    SelectBox _       -> return ()
     Debug             -> dumpState
     -- now compare the sets and check the game completion
   ls <- use levelState
@@ -201,29 +200,35 @@ doMove d = do
           updateCell point0 d0
           updateCell point1 d1
           updateCell point2 d2
+          return $ Just $ Diff {_direction = d, _isPush = True}
         Just False
         -- moved worker only
          -> do
           levelState . worker .= point1
           updateCell point0 d0
           updateCell point1 d1
+          return $ Just $ Diff {_direction = d, _isPush = False}
         Nothing
         -- nothing moved (but the worker could change the direction)
-         -> updateCell point0 d0
-      return $
-        if (d0, d1, d2) /= (c0, c1, c2)
-          then Just $ Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
-          else Nothing
+         -> do
+          updateCell point0 d0
+          return Nothing
     else return Nothing
 
 undoMove :: MonadState GameState m => Diff -> m ()
 undoMove diff = do
-  let point0 = diff ^. point
-  let point1 = movePoint point0 $ diff ^. direction
-  let point2 = movePoint point1 $ diff ^. direction
-  updateCell point0 $ diff ^. cell0
-  updateCell point1 $ diff ^. cell1
-  updateCell point2 $ diff ^. cell2
+  let dir = diff ^. direction
+  point1 <- use (levelState . worker)
+  let point0 = movePoint point1 $ opposite dir 
+  let point2 = movePoint point1 dir
+  d0 <- getCell point0
+  d1 <- getCell point1
+  d2 <- getCell point2
+  let (c0, c1, c2) = unMove (d0, d1, d2) $ diff ^. isPush
+  updateCell point0 $ directWorker dir c0
+  updateCell point1 c1
+  updateCell point2 c2
+  levelState . worker .= point0
 
 redoMoveWorker :: MonadState GameState m => m ()
 redoMoveWorker = do
@@ -392,6 +397,25 @@ move triple =
     (WorkerOnGoal d, Empty, c3)        -> ((Goal, Worker d, c3), Just False)
     (WorkerOnGoal d, Goal, c3)         -> ((Goal, WorkerOnGoal d, c3), Just False)
     _                                  -> (triple, Nothing)
+
+unMove :: (Cell, Cell, Cell) -> Bool -> (Cell, Cell, Cell)
+unMove triple isPush
+  -- mirroring of move function
+ =
+  case (triple, Just isPush) of
+    ((Empty, Worker d, Box), Just True)             -> (Worker d, Box, Empty)
+    ((Empty, Worker d, BoxOnGoal), Just True)       -> (Worker d, Box, Goal)
+    ((Empty, WorkerOnGoal d, Box), Just True)       -> (Worker d, BoxOnGoal, Empty)
+    ((Empty, WorkerOnGoal d, BoxOnGoal), Just True) -> (Worker d, BoxOnGoal, Goal)
+    ((Goal, Worker d, Box), Just True)              -> (WorkerOnGoal d, Box, Empty)
+    ((Goal, Worker d, BoxOnGoal), Just True)        -> (WorkerOnGoal d, Box, Goal)
+    ((Goal, WorkerOnGoal d, Box), Just True)        -> (WorkerOnGoal d, BoxOnGoal, Empty)
+    ((Goal, WorkerOnGoal d, BoxOnGoal), Just True)  -> (WorkerOnGoal d, BoxOnGoal, Goal)
+    ((Empty, Worker d, c3), Just False)             -> (Worker d, Empty, c3)
+    ((Empty, WorkerOnGoal d, c3), Just False)       -> (Worker d, Goal, c3)
+    ((Goal, Worker d, c3), Just False)              -> (WorkerOnGoal d, Empty, c3)
+    ((Goal, WorkerOnGoal d, c3), Just False)        -> (WorkerOnGoal d, Goal, c3)
+    _                                               -> triple
 
 getCell :: MonadState GameState m => Point -> m Cell
 getCell p = do
