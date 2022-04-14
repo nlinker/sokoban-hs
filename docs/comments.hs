@@ -335,13 +335,28 @@ undoMove diff = runUndoMove -- execState undoMoveM gameState
 -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
 -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
 
-[ [Empty, Wall, Wall, Wall, Wall, Wall, Wall]
-, [Wall, Wall, Empty, Empty, Goal, Empty, Wall]
-, [Wall, Empty, BoxOnGoal, Empty, Wall, Empty, Wall]
-, [Wall, Empty, Goal, Box, Empty, Empty, Wall]
-, [Wall, Empty, Worker U, Wall, Box, Wall, Wall]
-, [Wall, Wall, Empty, Worker L, Empty, Wall, Empty]
-, [Empty, Wall, Wall, Wall, Wall, Wall, Empty]
+[ [Empty, Wall,  Wall,      Wall,     Wall,  Wall,  Wall]
+, [Wall,  Wall,  Empty,     Empty,    Goal,  Empty, Wall]
+, [Wall,  Empty, BoxOnGoal, Empty,    Wall,  Empty, Wall]
+, [Wall,  Empty, Goal,      Box,      Empty, Empty, Wall]
+, [Wall,  Empty, Worker     U, Wall,  Box,   Wall,  Wall]
+, [Wall,  Wall,  Empty,     Worker L, Empty, Wall,  Empty]
+, [Empty, Wall,  Wall,      Wall,     Wall,  Wall,  Empty]
 ]
+
+_flatCells = [
+  Empty, Wall,  Wall,      Wall,     Wall,  Wall,  Wall,
+  Wall,  Wall,  Empty,     Empty,    Goal,  Empty, Wall,
+  Wall,  Empty, BoxOnGoal, Empty,    Wall,  Empty, Wall,
+  Wall,  Empty, Goal,      Box,      Empty, Empty, Wall,
+  Wall,  Empty, Empty,     Wall,     Box,   Wall,  Wall,
+  Wall,  Wall,  Empty,     Worker D, Empty, Wall,  Empty,
+  Empty, Wall,  Wall,      Wall,     Wall,  Wall,  Empty
+],
+_flatHeight = 7,
+_flatWidth = 7,
+_flatWorker = 38,
+_flatBoxes = [16,24,32],
+_flatGoals = [11,16,23]}
 
 -}

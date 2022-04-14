@@ -21,6 +21,7 @@ import Control.Monad       (filterM, forM_, when)
 import Control.Monad.ST    (ST, runST)
 import Control.Monad.State (MonadState, execState)
 import Data.Hashable       (Hashable(..))
+import Data.Maybe          (fromMaybe)
 import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
                             isEmptyOrGoal, isGoal, isWorker, levels, movePoint, opposite)
@@ -29,6 +30,7 @@ import Sokoban.Solver      (AStarSolver(..), aStarFind, pathToDirections)
 import qualified Data.HashSet                as S
 import qualified Data.HashTable.Class        as H
 import qualified Data.HashTable.ST.Cuckoo    as CuckooHash
+import           Data.List                   (sort)
 import qualified Data.Text                   as T
 import qualified Data.Vector                 as V
 import qualified Data.Vector.Unboxed         as VU
@@ -94,6 +96,7 @@ data FlatLevelState =
     , _flatBoxes  :: VU.Vector Int
     , _flatGoals  :: VU.Vector Int
     }
+  deriving (Eq, Show)
 
 makeLenses ''Diff
 
@@ -510,12 +513,37 @@ makeAssocList =
     ht <- makeHT
     H.toList ht
 
-flattenLevel :: LevelState -> ST s (VU.Vector Cell)
-flattenLevel _ls = do
-  let vec = VU.replicate 10 Wall
-  vec0 <- VU.thaw vec
-  VM.write vec0 0 (Worker D)
-  VU.freeze vec0
+--aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> m [p]
+--aStarFind solver src dst = do
+--  let astar = aStarInit src
+--  evalStateT (aStarFindRec solver dst) astar
+flattenLevel :: GameState -> FlatLevelState
+flattenLevel gs =
+  runST $ do
+    vec <- VU.thaw $ VU.replicate (m * n) Empty
+    forM_ [0 .. m - 1] $ \i ->
+      forM_ [0 .. n - 1] $ \j -> do
+        let c = (cs ! i) ! j
+        VM.write vec (i * n + j) c
+    flatCells <- VU.freeze vec
+    let (w, bz, gz) = fromMaybe (error $ "Invariant violation" <> show (gs ^. levelState)) (extractWBH cs)
+    let flatBoxes = VU.fromList $ sort $ map p2f $ S.toList bz
+    let flatGoals = VU.fromList $ sort $ map p2f $ S.toList gz
+    return $
+      FlatLevelState
+        { _flatCells = flatCells
+        , _flatHeight = m
+        , _flatWidth = n
+        , _flatWorker = p2f w
+        , _flatBoxes = flatBoxes
+        , _flatGoals = flatGoals
+        }
+  where
+    m = gs ^. levelState . height
+    n = gs ^. levelState . width
+    cs = gs ^. levelState . cells
+    p2f (Point i j) = i * n + j
+    f2p k = Point (k `div` n) (k `mod` n)
 
 unFlattenLevel :: FlatLevelState -> LevelState
-unFlattenLevel fls = undefined
+unFlattenLevel _fls = undefined
