@@ -2,11 +2,11 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE LambdaCase            #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
@@ -85,6 +85,16 @@ data GameState =
     }
   deriving (Eq, Show)
 
+data FlatLevelState =
+  FlatLevelState
+    { _flatCells  :: VU.Vector Cell
+    , _flatHeight :: !Int
+    , _flatWidth  :: !Int
+    , _flatWorker :: !Int
+    , _flatBoxes  :: VU.Vector Int
+    , _flatGoals  :: VU.Vector Int
+    }
+
 makeLenses ''Diff
 
 makePrisms ''UndoItem
@@ -94,6 +104,8 @@ makeLenses ''LevelState
 makeLenses ''ViewState
 
 makeLenses ''GameState
+
+makeLenses ''FlatLevelState
 
 data Action
   = Up
@@ -219,7 +231,7 @@ undoMove :: MonadState GameState m => Diff -> m ()
 undoMove diff = do
   let dir = diff ^. direction
   point1 <- use (levelState . worker)
-  let point0 = movePoint point1 $ opposite dir 
+  let point0 = movePoint point1 $ opposite dir
   let point2 = movePoint point1 dir
   d0 <- getCell point0
   d1 <- getCell point1
@@ -497,3 +509,13 @@ makeAssocList =
   runST $ do
     ht <- makeHT
     H.toList ht
+
+flattenLevel :: LevelState -> ST s (VU.Vector Cell)
+flattenLevel _ls = do
+  let vec = VU.replicate 10 Wall
+  vec0 <- VU.thaw vec
+  VM.write vec0 0 (Worker D)
+  VU.freeze vec0
+
+unFlattenLevel :: FlatLevelState -> LevelState
+unFlattenLevel fls = undefined

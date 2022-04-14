@@ -45,7 +45,7 @@ http://sokobano.de/wiki/index.php?title=Solver
 - [How to get MouseMove and MouseClick in bash](https://stackoverflow.com/a/5970472/5066426)
 - [Simple XLib program to highlight the cursor position](https://github.com/arp242/find-cursor)
 - [Handling Control-C in Haskell](https://neilmitchell.blogspot.com/2015/05/handling-control-c-in-haskell.html?m=1)
-
+- [STMonadTrans](https://hackage.haskell.org/package/STMonadTrans) A monad transformer version of the ST monad
 - Unicode symbols to try for walls, goals, boxes and worker:
 
 ```
@@ -57,3 +57,4 @@ D  ▼ ▽ ⬇ ⇩ ◪ ◒ ◓
 L  ◀ ◁ ⬅ ⇦ ⬕ ◐ ◑
 R  ▶ ▷ ➡ ⇨ ⬔ ◑ ◐
 ```
+

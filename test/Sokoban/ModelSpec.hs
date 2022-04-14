@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module Sokoban.ModelSpec where
 
 import Control.Arrow          (second)
@@ -7,7 +8,8 @@ import Control.Monad.Identity (runIdentity)
 import Control.Monad.State    (evalState)
 import Data.Maybe             (fromJust)
 import Sokoban.Console        (interpretClick, render)
-import Sokoban.Level          (Direction(..), Point(..), isEmptyOrGoal, levels, movePoint)
+import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal, levels,
+                               movePoint, toCell)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initial, levelState,
                                viewState, worker)
 import Sokoban.Resources      (yoshiroAutoCollection)
@@ -69,6 +71,27 @@ spec = do
     it "convert empty" $ do
       let points = []
       pathToDirections points `shouldBe` []
+  describe "unboxing Cell" $ do
+    it "unbox Cell (to . from)" $ do
+      let cells =
+            [ Worker U
+            , Worker D
+            , Worker L
+            , Worker R
+            , WorkerOnGoal U
+            , WorkerOnGoal D
+            , WorkerOnGoal L
+            , WorkerOnGoal R
+            , Goal
+            , Box
+            , BoxOnGoal
+            , Empty
+            , Wall
+            ]
+      map (toCell . fromCell) cells `shouldBe` cells
+    it "unbox Cell (from . to)" $ do
+      let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
+      map (fromCell . toCell) codes `shouldBe` codes
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 1) <> ";" <> show (i + 2) <> "m"
     aStarTest src dst = runIdentity $ aStarFind solver src dst
