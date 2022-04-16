@@ -66,3 +66,4 @@ dependencies:
     - lens
     - psqueues
     - stm-containers
+    - qm-interpolated-string

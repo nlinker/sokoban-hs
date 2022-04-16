@@ -16,9 +16,9 @@ import Prelude hiding (Left, Right, id)
 import Control.Lens        (use, (%=), (.=), (^.))
 import Control.Lens.TH     (makeLenses)
 import Control.Monad       (forM_, when)
-import Control.Monad.State (StateT, evalStateT, gets, lift)
+import Control.Monad.State (StateT, evalStateT, lift, gets)
 import Data.Hashable       (Hashable)
-import Sokoban.Level       (Direction(..), Point(..), deriveDir)
+import Sokoban.Level       (Direction(..), Point(..), deriveDir, PD)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
@@ -48,10 +48,10 @@ data AStarSolver m p where
 makeLenses ''Weight
 makeLenses ''AStar
 
-aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> m [p]
-aStarFind solver src dst = do
+aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> [p] -> m [p]
+aStarFind solver src dsts = do
   let astar = aStarInit src
-  evalStateT (aStarFindRec solver dst) astar
+  evalStateT (aStarFindRec solver dsts) astar
 
 aStarInit :: (Hashable p, Ord p) => p -> AStar p
 aStarInit src =
@@ -60,16 +60,16 @@ aStarInit src =
       closedList = H.empty :: H.HashMap p p
    in AStar openList closedList
 
-aStarFindRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> StateT (AStar p) m [p]
-aStarFindRec solver dst = do
+aStarFindRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> [p] -> StateT (AStar p) m [p]
+aStarFindRec solver dsts = do
   openList0 <- use openList
   closedList0 <- use closedList
   case Q.findMin openList0 of
-    Nothing -> gets $ backtrace dst <$> flip (^.) closedList
+    Nothing -> return []
     Just (p0, _, weight0)
-      | p0 == dst -> do
+      | p0 `elem` dsts -> do
         closedList %= H.insert p0 (weight0 ^. parent)
-        gets $ backtrace dst <$> flip (^.) closedList
+        gets $ backtrace p0 <$> flip (^.) closedList
     Just (p0, _, weight0) -> do
       openList %= Q.delete p0
       closedList %= H.insert p0 (weight0 ^. parent)
@@ -79,7 +79,7 @@ aStarFindRec solver dst = do
       forM_ neighPoints $ \np -> do
         dist <- lift $ distance solver np p0
         let g1 = weight0 ^. gScore + dist
-        let f1 = g1 + heuristic solver np dst
+        let f1 = g1 + minimum ((heuristic solver np) <$> dsts)
         let p1 = p0
         let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
         case Q.lookup np openList0 of
@@ -90,16 +90,12 @@ aStarFindRec solver dst = do
           Nothing
             -- the neighbour is new
            -> openList .= Q.insert np f1 w1 openList0
-      aStarFindRec solver dst
+      aStarFindRec solver dsts
 
---      let neighs = filter (not . (`H.member` closedList0)) $ map (movePoint p0) [U, D, L, R]
---      neighbors <- filterM (lift . isAccessible) neighs
 backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
-backtrace dst closedList
-    -- we repeatedly lookup for the parent of the current node
- = backtraceRec dst [dst]
+backtrace dst closedList = backtraceRec dst [dst]
   where
-    backtraceRec current acc =
+    backtraceRec current acc = -- we repeatedly lookup for the parent of the current node
       case H.lookup current closedList of
         Nothing -> []
         Just parent
@@ -115,3 +111,6 @@ pathToDirections ps = reverse $ convert ps []
       case deriveDir p1 p2 of
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
+
+dPathToDirections :: [PD] -> [Direction]
+dPathToDirections = undefined

@@ -54,13 +54,13 @@ newtype UndoItem =
 data LevelState =
   LevelState
     { _id         :: !T.Text
-    , _cells      :: MatrixCell
-    , _origin     :: MatrixCell
+    , _cells      :: !MatrixCell
+    , _origin     :: !MatrixCell
     , _height     :: !Int
     , _width      :: !Int
     , _worker     :: !Point
-    , _boxes      :: S.HashSet Point
-    , _goals      :: S.HashSet Point
+    , _boxes      :: !(S.HashSet Point)
+    , _goals      :: !(S.HashSet Point)
     , _isComplete :: !Bool
     , _undoStack  :: ![UndoItem]
     , _undoIndex  :: !Int
@@ -72,7 +72,7 @@ data ViewState =
   ViewState
     { _doClearScreen   :: !Bool
     , _clicks          :: ![Point]
-    , _destinations    :: S.HashSet Point
+    , _destinations    :: !(S.HashSet Point)
     , _animateRequired :: !Bool
     , _animateForward  :: !Bool
     }
@@ -89,12 +89,12 @@ data GameState =
 
 data FlatLevelState =
   FlatLevelState
-    { _flatCells  :: VU.Vector Cell
+    { _flatCells  :: !(VU.Vector Cell)
     , _flatHeight :: !Int
     , _flatWidth  :: !Int
     , _flatWorker :: !Int
-    , _flatBoxes  :: VU.Vector Int
-    , _flatGoals  :: VU.Vector Int
+    , _flatBoxes  :: !(VU.Vector Int)
+    , _flatGoals  :: !(VU.Vector Int)
     }
   deriving (Eq, Show)
 
@@ -120,7 +120,7 @@ data Action
   | Restart
   | PrevLevel
   | NextLevel
-  | SelectBox Point -- TODO should it be here? If yes, then maybe select boxes?
+  | SelectBox Point
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
   | Debug
@@ -307,7 +307,7 @@ moveWorkerAlongPath dst = do
   let distance np p0 = return $ fromEnum (np /= p0)
   let heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
   let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
-  dirs <- pathToDirections <$> aStarFind solver src dst
+  dirs <- pathToDirections <$> aStarFind solver src [dst]
   diffs' <- sequenceA <$> mapM doMove dirs
   -- traceM $ "\ndiffs' = " <> show diffs'
   case diffs' of
@@ -372,7 +372,7 @@ initial level = do
         , _isComplete = False
         , _undoStack = []
         , _undoIndex = -1
-        , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn"
+        , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
         }
 
 -- extract worker, boxes and goals, needed to be run after start, restart or undo

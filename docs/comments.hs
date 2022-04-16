@@ -335,6 +335,43 @@ undoMove diff = runUndoMove -- execState undoMoveM gameState
 -- > let diff = Diff {_point = point0, _direction = d, _cell0 = c0, _cell1 = c1, _cell2 = c2}
 -- > when ((d0, d1, d2) /= (c0, c1, c2)) $ undoStack %= (diff :)
 
+runTest :: IO ()
+runTest = do
+  gs <- buildGameState []
+  let src = gs ^. levelState . worker
+  let dst = Point 2 1
+  let neighbors p0 =
+        return $ do
+          let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+          let neighs = map (movePoint p0) [U, D, L, R]
+          filter isAccessible neighs
+  let distance np p0 = return $ fromEnum (np /= p0)
+  let heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
+  let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  let path = runIdentity $ aStarFind solver src dst
+  clearScreen
+  _ <- moveWorker gs path
+  print path
+  where
+    moveWorker :: GameState -> [Point] -> IO GameState
+    moveWorker gs1 [] = return gs1
+    moveWorker gs1 (p:ps) = do
+      let w = gs1 ^. levelState . worker
+      let gs2 =
+            case deriveDir w p of
+              Just U -> step gs1 A.Up
+              Just D -> step gs1 A.Down
+              Just L -> step gs1 A.Left
+              Just R -> step gs1 A.Right
+              _      -> gs1
+      moveCursorToOrigin
+      render gs2
+      threadDelay 100000
+      moveWorker gs2 ps
+
+--      let neighs = filter (not . (`H.member` closedList0)) $ map (movePoint p0) [U, D, L, R]
+--      neighbors <- filterM (lift . isAccessible) neighs
+
 [ [Empty, Wall,  Wall,      Wall,     Wall,  Wall,  Wall]
 , [Wall,  Wall,  Empty,     Empty,    Goal,  Empty, Wall]
 , [Wall,  Empty, BoxOnGoal, Empty,    Wall,  Empty, Wall]

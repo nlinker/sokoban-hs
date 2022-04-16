@@ -32,11 +32,11 @@ data Direction
   | D
   | L
   | R
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show, Generic, Hashable)
 
 data Cell
-  = Worker {-# UNPACK #-} !Direction
-  | WorkerOnGoal {-# UNPACK #-} !Direction
+  = Worker {-# UNPACK #-}!Direction
+  | WorkerOnGoal {-# UNPACK #-}!Direction
   | Goal
   | Box
   | BoxOnGoal
@@ -53,8 +53,6 @@ data Level =
     }
   deriving (Eq, Show)
 
-makeLenses ''Level
-
 -- Fields are took from SLC format, but more flattened
 -- e.g. http://www.sourcecode.se/sokoban/download/microban.slc
 data LevelCollection =
@@ -68,16 +66,27 @@ data LevelCollection =
     }
   deriving (Eq, Show)
 
-makeLenses ''LevelCollection
-
 data Point =
   Point Int Int
   deriving (Eq, Show, Generic, Hashable)
 
 instance Ord Point where
-  (Point i1 j1) <= (Point i2 j2) = (i1 <= i2) || ((i1 < i2) && (j1 <= j2))
+  compare (Point i1 j1) (Point i2 j2) = compare (i1, j1) (i2, j2)
+
+data PD =
+  PD Point Direction
+  deriving (Eq, Show, Generic, Hashable)
+
+instance Ord PD where
+  compare (PD p1 d1) (PD p2 d2) = compare (p1, d1) (p2, d2)
+
+makeLenses ''Level
+
+makeLenses ''LevelCollection
 
 makePrisms ''Point
+
+makePrisms ''PD
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.

@@ -1,42 +1,51 @@
+{-# LANGUAGE BinaryLiterals        #-}
+{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE ExtendedDefaultRules  #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeFamilies          #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Concurrent     (threadDelay)
-import Control.Exception      (finally)
-import Control.Lens           (use, (&), (.=), (.~), (^.))
-import Control.Monad          (forM_, when)
-import Control.Monad.Identity (runIdentity)
-import Control.Monad.State    (MonadState, evalState, execState, runState)
-import Data.Char              (isDigit)
-import Data.List              (isSuffixOf, stripPrefix)
-import Data.Maybe             (fromMaybe, isJust)
-import Data.Vector            ((!))
-import Sokoban.Level          (Cell(..), Direction(..), LevelCollection(..), Point(..), deriveDir,
-                               isBox, isEmptyOrGoal, isWorker, levels, movePoint)
-import Sokoban.Model          (GameState(..), ViewState(..), animateForward, animateRequired, cells,
-                               clicks, destinations, direction, doClearScreen, doMove, getCell,
-                               height, id, initial, levelState, levelState, message, step,
-                               undoIndex, undoMove, undoStack, viewState, width, worker, _UndoItem)
-import Sokoban.Parser         (parseLevels, splitWith)
-import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (AStarSolver(..), aStarFind)
-import System.Console.ANSI    (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
-                               ConsoleLayer(..), SGR(..), setSGR)
-import System.Environment     (getArgs)
-import System.IO              (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import Text.Read              (readMaybe)
+import Control.Concurrent         (threadDelay)
+import Control.Exception          (finally)
+import Control.Lens               (use, (&), (.=), (.~), (^.))
+import Control.Monad              (filterM, forM_, when)
+import Control.Monad.State        (MonadState, evalState, execState, runState)
+import Data.Char                  (isDigit)
+import Data.List                  (isSuffixOf, stripPrefix)
+import Data.Maybe                 (fromMaybe, isJust)
+import Data.Vector                ((!))
+import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), PD(..), Point(..),
+                                   deriveDir, isBox, isEmptyOrGoal, isWorker, levels, movePoint,
+                                   opposite)
+import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
+                                   cells, clicks, destinations, direction, doClearScreen, doMove,
+                                   getCell, height, id, initial, levelState, levelState, message,
+                                   step, undoIndex, undoMove, undoStack, viewState, width, worker,
+                                   _UndoItem)
+import Sokoban.Parser             (parseLevels, splitWith)
+import Sokoban.Resources          (yoshiroAutoCollection)
+import Sokoban.Solver             (AStarSolver(..), aStarFind)
+import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
+                                   ConsoleLayer(..), SGR(..), setSGR)
+import System.Environment         (getArgs)
+import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import Text.InterpolatedString.QM (qm)
+import Text.Read                  (readMaybe)
 
-import qualified Data.HashSet  as S
-import qualified Data.Text     as T
-import qualified Data.Text.IO  as T
-import qualified Sokoban.Model as A (Action(..))
+import           Control.Monad.Identity (Identity, runIdentity)
+import qualified Data.HashSet           as S
+import qualified Data.Text              as T
+import qualified Data.Text.IO           as T
+import qualified Sokoban.Model          as A (Action(..))
+import Debug.Trace (trace)
 
 whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
@@ -135,14 +144,12 @@ animate gsFrom gsTo = do
   let undos = gsTo ^. levelState . undoStack
   let uidx = gsTo ^. levelState . undoIndex
   if gsTo ^. viewState . animateForward
-      -- when (0 < uidx && uidx <= length undos) $ do
-    then when True $ do
-           let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
-           animateDo gsFrom dirs
-      -- when (0 <= uidx && uidx < length undos) $ do
-    else when True $ do
-           let diffs = reverse $ (undos !! (uidx - 1)) ^. _UndoItem
-           animateUndo gsFrom diffs
+    then do
+      let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
+      animateDo gsFrom dirs
+    else do
+      let diffs = reverse $ (undos !! (uidx - 1)) ^. _UndoItem
+      animateUndo gsFrom diffs
   where
     animateDo _ [] = return ()
     animateDo gs (dir:dirs) = do
@@ -316,34 +323,84 @@ render gs = do
 
 runTest :: IO ()
 runTest = do
-  gs <- buildGameState []
-  let src = gs ^. levelState . worker
-  let dst = Point 2 1
-  let neighbors p0 =
-        return $ do
-          let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
-          let neighs = map (movePoint p0) [U, D, L, R]
-          filter isAccessible neighs
+  gs0 <- buildGameState []
+  let gs = step gs0 A.NextLevel
+  render gs
+  let moveSolver = buildMoveSolver gs :: AStarSolver IO Point
+  let src = PD (Point 4 2) D -- box directed to the right
+  let dsts = map (PD (Point 1 1)) [U, D, L, R]
+  let isAccessible p = isEmptyOrGoal $ evalState (getCell p) gs
+  let isPathAccessible src dst =
+        if isAccessible dst
+          then not . null <$> aStarFind moveSolver src [dst]
+          else return False
+  -- [fmt| foo {show $ 1+2} src {show src} xs {show xs} |]
+  let neighbors :: PD -> IO [PD]
+      neighbors (PD p0 d0) = do
+        let cont = [PD (movePoint p0 d0) d0 | isAccessible (movePoint p0 d0)] -- the neighbor that continues push
+        let src = movePoint p0 (opposite d0)
+        let dsts1 = map (PD p0) $ filter (/= d0) [U, D, L, R]
+        (cont <>) <$> filterM (\(PD _ d) -> isPathAccessible src (movePoint p0 (opposite d))) dsts1
+  let heuristic (PD (Point i1 j1) _) (PD (Point i2 j2) _) = abs (i1 - i2) + abs (j1 - j2)
   let distance np p0 = return $ fromEnum (np /= p0)
-  let heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
-  let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
-  let path = runIdentity $ aStarFind solver src dst
-  clearScreen
-  _ <- moveWorker gs path
-  print path
+  let pushSolver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  pushPath <- aStarFind pushSolver src dsts
+  let dirs = dPathToDirections gs pushPath
+  putStrLn [qm| dirs = {dirs}|]
+
+ppath :: [PD]
+ppath =
+  [ PD (Point 4 2) D
+  , PD (Point 4 2) U
+  , PD (Point 3 2) U
+  , PD (Point 3 2) L
+  , PD (Point 3 1) L
+  , PD (Point 3 1) U
+  , PD (Point 2 1) U
+  , PD (Point 1 1) U
+  ]
+
+dPathToDirections :: GameState -> [PD] -> [Direction]
+dPathToDirections _gs [] = []
+dPathToDirections gs pds =
+  runIdentity $ do
+    let w = gs ^. levelState . worker
+        PD p d = head pds
+        prefix = astar w (movePoint p $ opposite d)
+    return $ prefix <> reverse (convert pds [])
   where
-    moveWorker :: GameState -> [Point] -> IO GameState
-    moveWorker gs1 [] = return gs1
-    moveWorker gs1 (p:ps) = do
-      let w = gs1 ^. levelState . worker
-      let gs2 =
-            case deriveDir w p of
-              Just U -> step gs1 A.Up
-              Just D -> step gs1 A.Down
-              Just L -> step gs1 A.Left
-              Just R -> step gs1 A.Right
-              _      -> gs1
-      moveCursorToOrigin
-      render gs2
-      threadDelay 100000
-      moveWorker gs2 ps
+    astar s t =
+      let solver = buildMoveSolver gs :: AStarSolver Identity Point in
+      case runIdentity $ aStarFind solver s [t] of
+        []   -> []
+        path -> pathToDirections path
+    convert ps acc | trace [qm| \nps={ps}\nacc={acc}|] False = undefined
+    convert [] _acc = []
+    convert [PD _ _] acc = acc
+    convert (PD _ d1:PD p d2:ps) acc
+      | d1 == d2 = convert (PD p d2 : ps) (d2 : acc)
+    convert (PD p1 d1:PD p2 d2:ps) acc =
+      let s = movePoint p1 $ opposite d1
+          t = movePoint p2 $ opposite d2
+       in convert (PD p2 d2 : ps) (reverse (astar s t) <> acc)
+
+pathToDirections :: [Point] -> [Direction]
+pathToDirections ps = reverse $ convert ps []
+  where
+    convert [] _acc = []
+    convert [_] acc = acc
+    convert (p1:p2:ps) acc =
+      case deriveDir p1 p2 of
+        Nothing -> acc
+        Just d  -> convert (p2 : ps) (d : acc)
+
+buildMoveSolver :: Monad m => GameState -> AStarSolver m Point
+buildMoveSolver gs = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  where
+    neighbors p0 =
+      return $ do
+        let isAccessible p = flip evalState gs $ isEmptyOrGoal <$> getCell p
+        let neighs = map (movePoint p0) [U, D, L, R]
+        filter isAccessible neighs
+    distance np p0 = return $ fromEnum (np /= p0)
+    heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
