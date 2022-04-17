@@ -18,13 +18,13 @@ import Prelude hiding (id)
 
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
-import Control.Lens               (use, (&), (.=), (.~), (^.), _1)
+import Control.Lens               (use, (&), (.=), (.~), (^.))
 import Control.Lens.TH            (makePrisms)
 import Control.Monad              (filterM, forM_, when)
-import Control.Monad.State        (MonadState, State, evalState, execState, get, runState)
+import Control.Monad.State        (MonadState, State, evalState, execState, runState)
 import Data.Char                  (isDigit)
 import Data.Hashable              (Hashable)
-import Data.List                  (isSuffixOf, stripPrefix)
+import Data.List                  (isSuffixOf, minimumBy, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import GHC.Generics               (Generic)
@@ -343,34 +343,34 @@ runTest :: IO ()
 runTest = do
   gsFirst <- buildGameState []
   let gsSecond = step gsFirst A.NextLevel
-  render gsSecond
   let gsThird = eraseBox gsSecond (Point 4 2)
   let gs = gsThird
-  let w = gs ^. levelState . worker
-  let src = PD (Point 4 2) D [] -- box directed to the right
-  let dst = PD (Point 1 1) U []
-  
+  let src = fromMaybe (error "The box immovable") (findBoxDirection gs (Point 4 2))
+  let dst = PD (Point 1 1) U [] -- only point matters
   let neighbors :: PD -> State GameState [PD]
       neighbors (PD p0 d0 _ds0) = do
         let moveSolver = buildMoveSolver gs p0 :: AStarSolver (State GameState) Point
         let isAccessible p = isEmptyOrGoal <$> getCell p
-        let stopCond dst = return . (== dst)
         let tryBuildPath src dst = do
-              aStarFind moveSolver src dst (return . (== dst))
-              undefined
-        let isPathAccessible src dst = do
               accessible <- isAccessible dst
               if accessible
-                then not . null <$> aStarFind moveSolver src dst (return . (== dst))
-                else return False
-        cont <- filterM (isAccessible . (^. _PD . _1)) [PD (movePoint p0 d0) d0 [d0]]
+                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
+                else return []
+        -- cont is the "continue push in the direction d0" neighbor
+        -- src is the position of the worker for the push
+        -- directed is the same box but with changed push direction
+        cont <- filterM (\(PD p _ _) -> isAccessible p) [PD (movePoint p0 d0) d0 [d0]]
         let src = movePoint p0 (opposite d0)
-        let dsts1 = map (\d -> PD p0 d []) $ filter (/= d0) [U, D, L, R]
-        (cont <>) <$> filterM (\(PD _ d _) -> isPathAccessible src (movePoint p0 (opposite d))) dsts1
+        let otherDirs = filter (/= d0) [U, D, L, R]
+        paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
+        (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
   let heuristic (PD (Point i1 j1) _ _) (PD (Point i2 j2) _ _) = return $ abs (i1 - i2) + abs (j1 - j2)
   let distance np p0 = return $ fromEnum (np /= p0)
   let pushSolver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
-  let pushPath = evalState (aStarFind pushSolver src dst (return . (== dst))) gs
+  let stopCond (PD p _ _) =
+        let PD q _ _ = dst
+         in return $ p == q
+  let pushPath = evalState (aStarFind pushSolver src dst stopCond) gs
   let dirs = dPathToDirections gs pushPath
   let gsFourth =
         flip execState gsSecond $ do
@@ -386,46 +386,45 @@ runTest = do
               viewState . animateRequired .= True
               viewState . animateForward .= True
   clearScreen
+--  render gsFourth
   animate gsSecond gsFourth
+  putStrLn [qm| dirs = {dirs}\npushPath={pushPath}|]
   where
+    findBoxDirection :: GameState -> Point -> Maybe PD
+    findBoxDirection gs box =
+      flip evalState gs $ do
+        let moveSolver = buildMoveSolver gs box :: AStarSolver (State GameState) Point
+        let isAccessible p = isEmptyOrGoal <$> getCell p
+        let tryBuildPath src dst = do
+              accessible <- isAccessible dst
+              if accessible
+                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
+                else return []
+        let w = gs ^. levelState . worker
+        paths <- mapM (\d -> PD box d <$> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
+        nePaths <- filterM (\(PD _ _ ds) -> (return . not . null) ds) paths -- non empty paths
+        return $
+          if null nePaths
+            then Nothing
+            else Just $ minimumBy (\(PD _ _ ds1) (PD _ _ ds2) -> compare (length ds1) (length ds2)) nePaths
     eraseBox :: GameState -> Point -> GameState
     eraseBox gs p =
       flip execState gs $ do
         c <- getCell p
         case c of
-          Box       -> updateCell p Empty
+          Box -> updateCell p Empty
           BoxOnGoal -> updateCell p Goal
-          _         -> return ()
+          _ -> return ()
 
---     & viewState . animateRequired .~
+
 dPathToDirections :: GameState -> [PD] -> [Direction]
 dPathToDirections _gs [] = []
-dPathToDirections gs pds =
-  let PD p d ds = head pds
-   in flip evalState gs $ do
-        let w = gs ^. levelState . worker
-        prefix <- astar p w (movePoint p $ opposite d)
-        conv <- convert pds []
-        return $ prefix <> reverse conv
+dPathToDirections gs pds = reverse $ evalState (convert pds []) gs
   where
-    astar :: MonadState GameState m => Point -> Point -> Point -> m [Direction]
-    astar box s t = do
-      gs <- get
-      let solver = buildMoveSolver gs box
-      pathToDirections <$> aStarFind solver s t (return . (== t))
-    --    convert ps acc
-    --      | trace [qm| \nps={ps}\nacc={acc}|] False = undefined
     convert :: MonadState GameState m => [PD] -> [Direction] -> m [Direction]
     convert [] _acc = return []
-    convert [PD {}] acc = return acc
-    convert (PD _ d1 _ds1:PD p d2 ds2:ps) acc
-      | d1 == d2 = convert (PD p d2 ds2 : ps) (d2 : acc)
-    convert (PD p1 d1 _ds1:PD p2 d2 ds2:ps) acc -- p1 == p2
-     = do
-      let s = movePoint p1 $ opposite d1
-      let t = movePoint p2 $ opposite d2
-      path <- astar p2 s t
-      convert (PD p2 d2 ds2 : ps) (reverse path <> acc)
+    convert [PD _ _ ds1] acc = return $ reverse ds1 <> acc
+    convert (PD _p1 _d1 ds1:PD p2 d2 ds2:pds) acc = convert (PD p2 d2 ds2 : pds) (reverse ds1 <> acc)
 
 pathToDirections :: [Point] -> [Direction]
 pathToDirections ps = reverse $ convert ps []
