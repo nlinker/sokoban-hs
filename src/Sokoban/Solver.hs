@@ -18,7 +18,7 @@ import Control.Lens.TH     (makeLenses)
 import Control.Monad       (forM_, when)
 import Control.Monad.State (StateT, evalStateT, lift, gets)
 import Data.Hashable       (Hashable)
-import Sokoban.Level       (Direction(..), Point(..), deriveDir, PD)
+import Sokoban.Level       (Direction(..), Point(..), deriveDir)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
@@ -42,7 +42,7 @@ data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Ord p) =>
     { neighbors :: p -> m [p]
     , distance  :: p -> p -> m Int -- for adjacent points only
-    , heuristic :: p -> p -> Int
+    , heuristic :: p -> p -> m Int
     } -> AStarSolver m p
 
 makeLenses ''Weight
@@ -79,7 +79,8 @@ aStarFindRec solver dsts = do
       forM_ neighPoints $ \np -> do
         dist <- lift $ distance solver np p0
         let g1 = weight0 ^. gScore + dist
-        let f1 = g1 + minimum ((heuristic solver np) <$> dsts)
+        hue <- lift $ mapM (\p -> heuristic solver np p) dsts
+        let f1 = g1 + minimum hue
         let p1 = p0
         let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
         case Q.lookup np openList0 of
@@ -111,6 +112,3 @@ pathToDirections ps = reverse $ convert ps []
       case deriveDir p1 p2 of
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
-
-dPathToDirections :: [PD] -> [Direction]
-dPathToDirections = undefined

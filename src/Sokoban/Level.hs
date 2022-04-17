@@ -73,20 +73,12 @@ data Point =
 instance Ord Point where
   compare (Point i1 j1) (Point i2 j2) = compare (i1, j1) (i2, j2)
 
-data PD =
-  PD Point Direction
-  deriving (Eq, Show, Generic, Hashable)
-
-instance Ord PD where
-  compare (PD p1 d1) (PD p2 d2) = compare (p1, d1) (p2, d2)
-
 makeLenses ''Level
 
 makeLenses ''LevelCollection
 
 makePrisms ''Point
 
-makePrisms ''PD
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.

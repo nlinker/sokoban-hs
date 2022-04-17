@@ -305,7 +305,7 @@ moveWorkerAlongPath dst = do
         let neighs = map (movePoint p0) [U, D, L, R]
         filterM isAccessible neighs
   let distance np p0 = return $ fromEnum (np /= p0)
-  let heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
+  let heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
   let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
   dirs <- pathToDirections <$> aStarFind solver src [dst]
   diffs' <- sequenceA <$> mapM doMove dirs

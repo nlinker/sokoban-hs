@@ -96,7 +96,7 @@ spec = do
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 1) <> ";" <> show (i + 2) <> "m"
     aStarTest src dst = runIdentity $ aStarFind solver src dst
     solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
-    heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
+    heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
     distance np p0 = return $ fromEnum (np /= p0)
     neighbors p0 =
       return $ do
