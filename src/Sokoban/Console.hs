@@ -15,16 +15,16 @@ import Prelude hiding (id)
 
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
-import Control.Lens               (use, (&), (.=), (.~), (^.))
+import Control.Lens               (use, (&), (.=), (.~), (^.), _1)
 import Control.Monad              (filterM, forM_, when)
-import Control.Monad.State        (MonadState, evalState, execState, runState)
+import Control.Monad.State        (MonadState, evalState, execState, runState, runStateT, State, evalStateT)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), PD(..), Point(..),
                                    deriveDir, isBox, isEmptyOrGoal, isWorker, levels, movePoint,
-                                   opposite)
+                                   opposite, _PD)
 import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
                                    cells, clicks, destinations, direction, doClearScreen, doMove,
                                    getCell, height, id, initial, levelState, levelState, message,
@@ -46,6 +46,7 @@ import qualified Data.Text              as T
 import qualified Data.Text.IO           as T
 import qualified Sokoban.Model          as A (Action(..))
 import Debug.Trace (trace)
+import Control.Monad.Trans (lift)
 
 whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
@@ -326,25 +327,24 @@ runTest = do
   gs0 <- buildGameState []
   let gs = step gs0 A.NextLevel
   render gs
-  let moveSolver = buildMoveSolver gs :: AStarSolver IO Point
+  let moveSolver = buildMoveSolver :: AStarSolver (State GameState) Point
   let src = PD (Point 4 2) D -- box directed to the right
   let dsts = map (PD (Point 1 1)) [U, D, L, R]
-  let isAccessible p = isEmptyOrGoal $ evalState (getCell p) gs
-  let isPathAccessible src dst =
-        if isAccessible dst
+  let isAccessible p = isEmptyOrGoal <$> getCell p
+  let isPathAccessible src dst = do
+        accessible <- isAccessible dst
+        if accessible
           then not . null <$> aStarFind moveSolver src [dst]
           else return False
-  -- [fmt| foo {show $ 1+2} src {show src} xs {show xs} |]
-  let neighbors :: PD -> IO [PD]
-      neighbors (PD p0 d0) = do
-        let cont = [PD (movePoint p0 d0) d0 | isAccessible (movePoint p0 d0)] -- the neighbor that continues push
+  let neighbors (PD p0 d0) = do
+        cont <- filterM (isAccessible . (^. _PD . _1)) [PD (movePoint p0 d0) d0] -- the neighbor that continues push
         let src = movePoint p0 (opposite d0)
         let dsts1 = map (PD p0) $ filter (/= d0) [U, D, L, R]
         (cont <>) <$> filterM (\(PD _ d) -> isPathAccessible src (movePoint p0 (opposite d))) dsts1
   let heuristic (PD (Point i1 j1) _) (PD (Point i2 j2) _) = abs (i1 - i2) + abs (j1 - j2)
   let distance np p0 = return $ fromEnum (np /= p0)
   let pushSolver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
-  pushPath <- aStarFind pushSolver src dsts
+  let pushPath = evalState (aStarFind pushSolver src dsts) gs
   let dirs = dPathToDirections gs pushPath
   putStrLn [qm| dirs = {dirs}|]
 
@@ -363,26 +363,29 @@ ppath =
 dPathToDirections :: GameState -> [PD] -> [Direction]
 dPathToDirections _gs [] = []
 dPathToDirections gs pds =
-  runIdentity $ do
+  flip evalState gs $ do
     let w = gs ^. levelState . worker
-        PD p d = head pds
-        prefix = astar w (movePoint p $ opposite d)
-    return $ prefix <> reverse (convert pds [])
+    let PD p d = head pds
+    prefix <- astar w (movePoint p $ opposite d)
+    conv <- convert pds []
+    return $ prefix <> reverse conv
   where
-    astar s t =
-      let solver = buildMoveSolver gs :: AStarSolver Identity Point in
-      case runIdentity $ aStarFind solver s [t] of
-        []   -> []
-        path -> pathToDirections path
+    astar :: MonadState GameState m => Point -> Point -> m [Direction]
+    astar s t = do
+      let solver = buildMoveSolver
+      pathToDirections <$> aStarFind solver s [t]
+      
+    convert :: MonadState GameState m => [PD] -> [Direction] -> m [Direction] 
     convert ps acc | trace [qm| \nps={ps}\nacc={acc}|] False = undefined
-    convert [] _acc = []
-    convert [PD _ _] acc = acc
+    convert [] _acc = return []
+    convert [PD _ _] acc = return acc
     convert (PD _ d1:PD p d2:ps) acc
       | d1 == d2 = convert (PD p d2 : ps) (d2 : acc)
-    convert (PD p1 d1:PD p2 d2:ps) acc =
+    convert (PD p1 d1:PD p2 d2:ps) acc = do
       let s = movePoint p1 $ opposite d1
-          t = movePoint p2 $ opposite d2
-       in convert (PD p2 d2 : ps) (reverse (astar s t) <> acc)
+      let t = movePoint p2 $ opposite d2
+      path <- astar s t
+      convert (PD p2 d2 : ps) (reverse path <> acc)
 
 pathToDirections :: [Point] -> [Direction]
 pathToDirections ps = reverse $ convert ps []
@@ -394,13 +397,12 @@ pathToDirections ps = reverse $ convert ps []
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
 
-buildMoveSolver :: Monad m => GameState -> AStarSolver m Point
-buildMoveSolver gs = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+buildMoveSolver :: MonadState GameState m => AStarSolver m Point
+buildMoveSolver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
   where
-    neighbors p0 =
-      return $ do
-        let isAccessible p = flip evalState gs $ isEmptyOrGoal <$> getCell p
+    neighbors p0 = do
+        let isAccessible p = isEmptyOrGoal <$> getCell p
         let neighs = map (movePoint p0) [U, D, L, R]
-        filter isAccessible neighs
+        filterM isAccessible neighs
     distance np p0 = return $ fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
