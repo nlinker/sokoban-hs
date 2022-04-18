@@ -16,22 +16,22 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
-import Control.Lens               (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2,
-                                   _3)
-import Control.Lens.TH            (makeLenses, makePrisms)
-import Control.Monad              (filterM, forM, forM_, when)
-import Control.Monad.ST           (runST)
-import Control.Monad.State        (MonadState, execState, gets, runState)
-import Data.Maybe                 (fromMaybe)
-import Data.Ord                   (comparing)
-import Data.Vector                (Vector, (!))
-import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
-                                   Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, _PD)
-import Sokoban.Solver             (AStarSolver(..), aStarFind)
-import Text.InterpolatedString.QM (qm)
+import Control.Arrow       (second)
+import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=), (^.),
+                            _1, _2, _3)
+import Control.Lens.TH     (makeLenses, makePrisms)
+import Control.Monad       (filterM, forM, forM_, when)
+import Control.Monad.ST    (runST)
+import Control.Monad.State (MonadState, execState, gets, runState)
+import Data.Foldable       (foldl', minimumBy)
+import Data.Maybe          (fromMaybe)
+import Data.Ord            (comparing)
+import Data.Vector         (Vector, (!))
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, PD(..), Point(..),
+                            deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker, levels, movePoint,
+                            opposite, _PD)
+import Sokoban.Solver      (AStarSolver(..), aStarFind)
 
-import           Data.Foldable               (foldl', minimumBy)
 import qualified Data.HashSet                as S
 import           Data.List                   (sort)
 import qualified Data.Text                   as T
@@ -40,7 +40,6 @@ import qualified Data.Vector.Unboxed         as VU
 import qualified Data.Vector.Unboxed.Mutable as VM
 import qualified Sokoban.Level               as L (cells, height, id, width)
 import qualified Text.Builder                as TB
-import Control.Arrow (second)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -68,6 +67,7 @@ data LevelState =
     , _isComplete :: !Bool
     , _undoStack  :: ![UndoItem]
     , _undoIndex  :: !Int
+    , _stats      :: !Stats
     }
   deriving (Eq, Show)
 
@@ -79,6 +79,13 @@ data ViewState =
     , _animateRequired :: !Bool
     , _animateForward  :: !Bool
     , _message         :: !T.Text
+    }
+  deriving (Eq, Show)
+
+data Stats =
+  Stats
+    { _moveCount :: !Int
+    , _pushCount :: !Int
     }
   deriving (Eq, Show)
 
@@ -109,6 +116,8 @@ makePrisms ''UndoItem
 makeLenses ''LevelState
 
 makeLenses ''ViewState
+
+makeLenses ''Stats
 
 makeLenses ''GameState
 
@@ -155,6 +164,7 @@ runStep action = do
   if ls ^. goals == ls ^. boxes
     then do
       levelState . isComplete .= True
+      viewState . doClearScreen .= True
       viewState . message .= T.pack "Level complete!"
     else levelState . isComplete .= False
 
@@ -217,6 +227,7 @@ doMove d = do
         Just True
         -- moved both worker and box
          -> do
+          levelState . stats . pushCount += 1
           levelState . boxes %= (S.insert point2 . S.delete point1)
           levelState . worker .= point1
           updateCell point0 d0
@@ -226,6 +237,7 @@ doMove d = do
         Just False
         -- moved worker only
          -> do
+          levelState . stats . moveCount += 1
           levelState . worker .= point1
           updateCell point0 d0
           updateCell point1 d1
@@ -250,6 +262,9 @@ undoMove diff = do
   updateCell point0 $ directWorker dir c0
   updateCell point1 c1
   updateCell point2 c2
+  if diff ^. isPush
+    then levelState . stats . pushCount -= 1
+    else levelState . stats . moveCount -= 1
   levelState . worker .= point0
 
 redoMoveWorker :: MonadState GameState m => m ()
@@ -328,11 +343,18 @@ moveBoxesByWorker src dst = do
   dirs <-
     case (src, dst) of
       ([s], [t]) -> do
-        erasedGs <- gets $ eraseBox s
+        erasedGs <- gets $ eraseBox [s]
+        let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
         -- erase source box to not break path finding and avoid spoil the current gs
-        let (dirs, dbgGs) = runState (tryMove1Box s t) erasedGs
-        viewState . message .= (dbgGs ^. viewState . message)
-        viewState . doClearScreen .= True
+        -- viewState . message .= (dbgGs ^. viewState . message)
+        -- viewState . doClearScreen .= True
+        return dirs
+      ([s1, s2], [t1, t2]) -> do
+        erasedGs <- gets $ eraseBox [s1, s2]
+        -- erase source boxes to not break path finding and avoid spoil the current gs
+        let (dirs, _dbgGs) = runState (tryMove2Boxes [s1, s2] [t1, t2]) erasedGs
+        -- viewState . message .= (dbgGs ^. viewState . message)
+        -- viewState . doClearScreen .= True
         return dirs
       _ -> return []
   diffs' <- sequenceA <$> mapM doMove dirs
@@ -347,8 +369,8 @@ moveBoxesByWorker src dst = do
       viewState . animateRequired .= True
       viewState . animateForward .= True
   where
-    eraseBox :: Point -> GameState -> GameState
-    eraseBox box gs =
+    eraseBox :: [Point] -> GameState -> GameState
+    eraseBox boxez gs =
       flip execState gs $ do
         guy <- use $ levelState . worker
         wc <- getCell guy
@@ -356,11 +378,12 @@ moveBoxesByWorker src dst = do
           Worker _       -> updateCell guy Empty
           WorkerOnGoal _ -> updateCell guy Goal
           _              -> return ()
-        bc <- getCell box
-        case bc of
-          Box       -> updateCell box Empty
-          BoxOnGoal -> updateCell box Goal
-          _         -> return ()
+        forM_ boxez $ \box -> do
+          bc <- getCell box
+          case bc of
+            Box       -> updateCell box Empty
+            BoxOnGoal -> updateCell box Goal
+            _         -> return ()
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       srcs <- findBoxDirections s
@@ -378,6 +401,8 @@ moveBoxesByWorker src dst = do
               else minimumBy (comparing length) nePaths
       -- levelState . message .= [qm| selected={selected}|]
       return selected
+    tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
+    tryMove2Boxes _ss _ts = return []
 
 findBoxDirections :: MonadState GameState m => Point -> m [PD]
 findBoxDirections box = do
@@ -389,11 +414,9 @@ findBoxDirections box = do
           then aStarFind moveSolver src dst (return . (== dst))
           else return []
   w <- use (levelState . worker)
-  -- PD box d <$>
   paths <- mapM (\d -> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
   let augPaths = zip [U, D, L, R] paths
   let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
-  viewState . message .= [qm| dirPoints={dirPoints}|]
   return dirPoints
 
 buildMoveSolver :: MonadState GameState m => [Point] -> AStarSolver m Point
@@ -471,6 +494,7 @@ initial level = do
         , _isComplete = False
         , _undoStack = []
         , _undoIndex = -1
+        , _stats = Stats 0 0
         }
 
 -- extract worker, boxes and goals, needed to be run after start, restart or undo
@@ -511,10 +535,9 @@ move triple =
     (WorkerOnGoal d, Goal, c3)         -> ((Goal, WorkerOnGoal d, c3), Just False)
     _                                  -> (triple, Nothing)
 
+-- mirroring of move function
 unMove :: (Cell, Cell, Cell) -> Bool -> (Cell, Cell, Cell)
-unMove triple isPush
-  -- mirroring of move function
- =
+unMove triple isPush =
   case (triple, Just isPush) of
     ((Empty, Worker d, Box), Just True)             -> (Worker d, Box, Empty)
     ((Empty, Worker d, BoxOnGoal), Just True)       -> (Worker d, Box, Goal)

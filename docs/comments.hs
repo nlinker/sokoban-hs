@@ -1,5 +1,4 @@
 {-
-
 aStarFind :: MonadState GameState m => Point -> Point -> m AStarData
 aStarFind src dst = do
   let ad0 = initAStarData src
@@ -438,5 +437,7 @@ aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> m [p]
 aStarFind solver src dst = do
   let astar = aStarInit src
   evalStateT (aStarFindRec solver dst) astar
+
+import Text.InterpolatedString.QM (qm)
 
 -}

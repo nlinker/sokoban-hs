@@ -95,6 +95,40 @@ aStarFindRec solver dst stopCond = do
                -> openList .= Q.insert np f1 w1 openList0
           aStarFindRec solver dst stopCond
 
+breadFirstSearch :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> m [p]
+breadFirstSearch solver src = do
+  let astar = aStarInit src
+  evalStateT (breadFirstSearchRec solver) astar
+
+breadFirstSearchRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> StateT (AStar p) m [p]
+breadFirstSearchRec solver = do
+  -- TODO finish it
+  openList0 <- use openList
+  closedList0 <- use closedList
+  case Q.findMin openList0 of
+    Nothing -> return []
+    Just (p0, _, weight0) -> do
+          openList %= Q.delete p0
+          closedList %= H.insert p0 (weight0 ^. parent)
+          neighbors <- lift $ neighbors solver p0
+          let neighPoints = filter (not . (`H.member` closedList0)) neighbors
+          -- `k` is the current node, `fs` is f-score
+          forM_ neighPoints $ \np -> do
+            dist <- lift $ distance solver np p0
+            let g1 = weight0 ^. gScore + dist
+            let f1 = g1
+            let p1 = p0
+            let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
+            case Q.lookup np openList0 of
+              Just (_, w)
+                  -- the neighbour can be reached with smaller cost - change priority
+                  -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
+               -> when (g1 < (w ^. gScore)) $ openList .= Q.insert np f1 w1 openList0
+              Nothing
+                -- the neighbour is new
+               -> openList .= Q.insert np f1 w1 openList0
+          breadFirstSearchRec solver
+
 backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
 backtrace dst closedList = backtraceRec dst [dst]
   where

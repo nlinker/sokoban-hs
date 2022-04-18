@@ -63,6 +63,11 @@ yoshiroAuto :: T.Text
 yoshiroAuto =
   T.pack
     [str|
+; 0
+#######
+#@$ . #
+#######
+
 ; 1
  ######
 ##  . #
