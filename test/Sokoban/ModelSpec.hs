@@ -93,7 +93,7 @@ spec = do
       let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
       map (fromCell . toCell) codes `shouldBe` codes
   where
-    mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 1) <> ";" <> show (i + 2) <> "m"
+    mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))
     solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)

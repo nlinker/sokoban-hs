@@ -242,7 +242,7 @@ extractMouseClick key = do
   -- expected input in the form "\ESC[<0;2;3M" or "\ESC[<0;2;3m" ("m" is button up)
   let lbmDown = "M" `isSuffixOf` rest
   case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
-    [Just x, Just y] -> Just (Point (y - 2) ((x - 1) `div` 2), lbmDown)
+    [Just x, Just y] -> Just (Point (y - 2) ((x - 3) `div` 2), lbmDown)
     _                -> Nothing
 
 showInMessage :: Show a => GameState -> a -> GameState
@@ -281,8 +281,8 @@ render gs = do
     let (char, color) = getCellSkin $ (cs ! i) ! j
     let suffix =
           if j /= 0
-            then " " ++ [char]
-            else [char]
+            then " " <> [char]
+            else "  " <> [char]
     if p `elem` (vs ^. clicks)
       then colorStr color True suffix
       else colorStr color False suffix
