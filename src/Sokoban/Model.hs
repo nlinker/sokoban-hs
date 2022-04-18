@@ -68,7 +68,6 @@ data LevelState =
     , _isComplete :: !Bool
     , _undoStack  :: ![UndoItem]
     , _undoIndex  :: !Int
-    , _message    :: !T.Text
     }
   deriving (Eq, Show)
 
@@ -79,6 +78,7 @@ data ViewState =
     , _destinations    :: !(S.HashSet Point)
     , _animateRequired :: !Bool
     , _animateForward  :: !Bool
+    , _message         :: !T.Text
     }
   deriving (Eq, Show)
 
@@ -135,6 +135,7 @@ step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
+  viewState . message %= (\msg -> T.replicate (T.length msg) " ")
   case action of
     Up                -> moveWorker (toDirection action) True
     Down              -> moveWorker (toDirection action) True
@@ -154,9 +155,8 @@ runStep action = do
   if ls ^. goals == ls ^. boxes
     then do
       levelState . isComplete .= True
-      levelState . message .= T.pack ("Level complete!" <> replicate 10 ' ')
+      viewState . message .= T.pack "Level complete!"
     else levelState . isComplete .= False
-  -- dumpState
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
@@ -164,7 +164,7 @@ dumpState = do
   uidx <- use $ levelState . undoIndex
   let msg1 = "uidx: " <> show uidx <> "\n"
   let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
-  levelState . message .= T.pack msg2
+  viewState . message .= T.pack msg2
   viewState . clicks .= []
   viewState . doClearScreen .= True
 
@@ -180,7 +180,7 @@ restartLevel = do
       levelState . cells .= originCells
       levelState . undoStack .= []
       levelState . undoIndex .= -1
-      levelState . message .= ""
+      viewState . message .= ""
   viewState . clicks .= []
   viewState . doClearScreen .= True
 
@@ -330,8 +330,8 @@ moveBoxesByWorker src dst = do
       ([s], [t]) -> do
         erasedGs <- gets $ eraseBox s
         -- erase source box to not break path finding and avoid spoil the current gs
-        let (dirs, eraseGs2) = runState (tryMove1Box s t) erasedGs
-        levelState . message .= (eraseGs2 ^. levelState . message)
+        let (dirs, dbgGs) = runState (tryMove1Box s t) erasedGs
+        viewState . message .= (dbgGs ^. viewState . message)
         viewState . doClearScreen .= True
         return dirs
       _ -> return []
@@ -393,7 +393,7 @@ findBoxDirections box = do
   paths <- mapM (\d -> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
   let augPaths = zip [U, D, L, R] paths
   let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
-  levelState . message .= [qm| dirPoints={dirPoints}|]
+  viewState . message .= [qm| dirPoints={dirPoints}|]
   return dirPoints
 
 buildMoveSolver :: MonadState GameState m => [Point] -> AStarSolver m Point
@@ -471,7 +471,6 @@ initial level = do
         , _isComplete = False
         , _undoStack = []
         , _undoIndex = -1
-        , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
         }
 
 -- extract worker, boxes and goals, needed to be run after start, restart or undo

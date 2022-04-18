@@ -396,6 +396,12 @@ _flatWorker = 38,
 _flatBoxes = [16,24,32],
 _flatGoals = [11,16,23]}
 
+showInMessage :: Show a => GameState -> a -> GameState
+showInMessage gs x =
+  let nm = T.length $ gs ^. viewState . message
+      msg1 = "action = " <> show x
+   in gs & viewState . message .~ T.pack (msg1 <> replicate (nm - length msg1) ' ')
+
 ------------------------------------
 -- an example of using hashtable  --
 import Control.Monad.ST    (ST, runST)

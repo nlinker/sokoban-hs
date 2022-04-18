@@ -91,7 +91,7 @@ buildGameState args = do
       { _collection = levelCollection
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
-      , _viewState = ViewState False [] S.empty False False
+      , _viewState = ViewState False [] S.empty False False "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
       }
 
 gameLoop :: GameState -> IO ()
@@ -245,12 +245,6 @@ extractMouseClick key = do
     [Just x, Just y] -> Just (Point (y - 2) ((x - 3) `div` 2), lbmDown)
     _                -> Nothing
 
-showInMessage :: Show a => GameState -> a -> GameState
-showInMessage gs x =
-  let nm = T.length $ gs ^. levelState . message
-      msg1 = "action = " <> show x
-   in gs & levelState . message .~ T.pack (msg1 <> replicate (nm - length msg1) ' ')
-
 clearScreen :: IO ()
 clearScreen = putStrLn "\ESC[2J"
 
@@ -288,7 +282,7 @@ render gs = do
       else colorStr color False suffix
     when (j == n - 1) $ putStrLn ""
   T.putStrLn $ "Level: " <> ls ^. id
-  T.putStrLn $ ls ^. message
+  T.putStrLn $ vs ^. message
   where
     colorStr :: Color -> Bool -> String -> IO ()
     colorStr color selected str = do
