@@ -396,4 +396,41 @@ _flatWorker = 38,
 _flatBoxes = [16,24,32],
 _flatGoals = [11,16,23]}
 
+------------------------------------
+-- an example of using hashtable  --
+import Control.Monad.ST    (ST, runST)
+import Data.Hashable       (Hashable(..))
+import qualified Data.HashTable.Class        as H
+import qualified Data.HashTable.ST.Cuckoo    as CuckooHash
+type Hashtable s k v = CuckooHash.HashTable s k v
+
+instance (VU.Unbox a, Hashable a) => Hashable (VU.Vector a) where
+  hashWithSalt salt = hashWithSalt salt . VU.toList
+  {-# INLINE hashWithSalt #-}
+
+-- MV.STVector s Int
+makeHT :: ST s (Hashtable s (VU.Vector Int) Int)
+makeHT = do
+  ht <- H.new
+  forM_ [0 .. 9] $ \key -> do
+    let vec = VU.replicate 10 0
+    vec0 <- VU.thaw vec
+    VM.write vec0 key (key + 1)
+    vecf <- VU.freeze vec0
+    H.mutate ht vecf $ \case
+      Nothing -> (Just 0, ())
+      Just _ -> (Just 0, ())
+  pure ht
+
+makeAssocList :: [(VU.Vector Int, Int)]
+makeAssocList =
+  runST $ do
+    ht <- makeHT
+    H.toList ht
+
+aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> m [p]
+aStarFind solver src dst = do
+  let astar = aStarInit src
+  evalStateT (aStarFindRec solver dst) astar
+
 -}

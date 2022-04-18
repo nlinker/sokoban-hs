@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
@@ -15,21 +16,23 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
-import Control.Lens        (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2, _3)
-import Control.Lens.TH     (makeLenses, makePrisms)
-import Control.Monad       (filterM, forM_, when)
-import Control.Monad.ST    (ST, runST)
-import Control.Monad.State (MonadState, execState)
-import Data.Hashable       (Hashable(..))
-import Data.Maybe          (fromMaybe)
-import Data.Vector         (Vector, (!))
-import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, Point(..), isBox,
-                            isEmptyOrGoal, isGoal, isWorker, levels, movePoint, opposite)
-import Sokoban.Solver      (AStarSolver(..), aStarFind, pathToDirections)
+import Control.Lens               (Lens', ix, lens, use, (%=), (&), (.=), (.~), (<>=), (^.), _1, _2,
+                                   _3)
+import Control.Lens.TH            (makeLenses, makePrisms)
+import Control.Monad              (filterM, forM, forM_, when)
+import Control.Monad.ST           (runST)
+import Control.Monad.State        (MonadState, execState, gets, runState)
+import Data.Maybe                 (fromMaybe)
+import Data.Ord                   (comparing)
+import Data.Vector                (Vector, (!))
+import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
+                                   Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
+                                   levels, movePoint, opposite, _PD)
+import Sokoban.Solver             (AStarSolver(..), aStarFind)
+import Text.InterpolatedString.QM (qm)
 
+import           Data.Foldable               (foldl', minimumBy)
 import qualified Data.HashSet                as S
-import qualified Data.HashTable.Class        as H
-import qualified Data.HashTable.ST.Cuckoo    as CuckooHash
 import           Data.List                   (sort)
 import qualified Data.Text                   as T
 import qualified Data.Vector                 as V
@@ -37,6 +40,7 @@ import qualified Data.Vector.Unboxed         as VU
 import qualified Data.Vector.Unboxed.Mutable as VM
 import qualified Sokoban.Level               as L (cells, height, id, width)
 import qualified Text.Builder                as TB
+import Control.Arrow (second)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -142,7 +146,7 @@ runStep action = do
     PrevLevel         -> switchLevel (negate 1)
     NextLevel         -> switchLevel (0 + 1)
     MoveWorker dst    -> moveWorkerAlongPath dst
-    MoveBoxes src dst -> moveBoxes src dst
+    MoveBoxes src dst -> moveBoxesByWorker src dst
     SelectBox _       -> return ()
     Debug             -> dumpState
     -- now compare the sets and check the game completion
@@ -161,6 +165,7 @@ dumpState = do
   let msg1 = "uidx: " <> show uidx <> "\n"
   let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
   levelState . message .= T.pack msg2
+  viewState . clicks .= []
   viewState . doClearScreen .= True
 
 restartLevel :: MonadState GameState m => m ()
@@ -176,6 +181,7 @@ restartLevel = do
       levelState . undoStack .= []
       levelState . undoIndex .= -1
       levelState . message .= ""
+  viewState . clicks .= []
   viewState . doClearScreen .= True
 
 switchLevel :: MonadState GameState m => Int -> m ()
@@ -191,6 +197,7 @@ switchLevel di = do
     index .= newIdx
     levelState .= l
   viewState . doClearScreen .= True
+  viewState . clicks .= []
 
 doMove :: MonadState GameState m => Direction -> m (Maybe Diff)
 doMove d = do
@@ -256,6 +263,7 @@ redoMoveWorker = do
       viewState . animateRequired .= True
       viewState . animateForward .= True
     levelState . undoIndex .= uidx - 1
+  viewState . clicks .= []
 
 undoMoveWorker :: MonadState GameState m => m ()
 undoMoveWorker = do
@@ -276,6 +284,7 @@ undoMoveWorker = do
       levelState . worker .= w
       levelState . boxes .= b
       levelState . goals .= h
+  viewState . clicks .= []
 
 moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
 moveWorker d storeUndo = do
@@ -290,26 +299,14 @@ moveWorker d storeUndo = do
         -- undoIndex:                 ^2^           =>    ^0^
         levelState . undoStack .= UndoItem [diff] : drop uidx (ls ^. undoStack)
         levelState . undoIndex .= 0
+  viewState . clicks .= []
 
---instance MonadState GameState m => AStarSolver Point where
---  getNeighbors p0 = do
---      let isAccessible p = isEmptyOrGoal <$> getCell p
---      let neighs = map (movePoint p0) [U, D, L, R]
---      filterM isAccessible neighs
---  heuristic (Point i1 j1) (Point i2 j2) = abs (i1 - i2) + abs (j1 - j2)
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
   src <- use $ levelState . worker
-  let neighbors p0 = do
-        let isAccessible p = isEmptyOrGoal <$> getCell p
-        let neighs = map (movePoint p0) [U, D, L, R]
-        filterM isAccessible neighs
-  let distance np p0 = return $ fromEnum (np /= p0)
-  let heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
-  let solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  let solver = buildMoveSolver []
   dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst))
   diffs' <- sequenceA <$> mapM doMove dirs
-  -- traceM $ "\ndiffs' = " <> show diffs'
   case diffs' of
     Nothing -> return ()
     Just [] -> return ()
@@ -320,17 +317,119 @@ moveWorkerAlongPath dst = do
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
       viewState . animateForward .= True
-  -- levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> "): " <> show dirs <> "      ")
 
 calculateBoxReachability :: MonadState GameState m => Point -> m ()
 calculateBoxReachability box = do
   boxez <- use $ levelState . boxes
   when (S.member box boxez) undefined
 
-moveBoxes :: MonadState GameState m => [Point] -> [Point] -> m ()
-moveBoxes src dst = do
-  levelState . message .= T.pack ("(" <> show src <> " -> " <> show dst <> ")")
-  viewState . doClearScreen .= True
+moveBoxesByWorker :: MonadState GameState m => [Point] -> [Point] -> m ()
+moveBoxesByWorker src dst = do
+  dirs <-
+    case (src, dst) of
+      ([s], [t]) -> do
+        erasedGs <- gets $ eraseBox s
+        -- erase source box to not break path finding and avoid spoil the current gs
+        let (dirs, eraseGs2) = runState (tryMove1Box s t) erasedGs
+        levelState . message .= (eraseGs2 ^. levelState . message)
+        viewState . doClearScreen .= True
+        return dirs
+      _ -> return []
+  diffs' <- sequenceA <$> mapM doMove dirs
+  case diffs' of
+    Nothing -> return ()
+    Just [] -> return ()
+    Just diffs -> do
+      ls <- use levelState
+      let uidx = ls ^. undoIndex
+      levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
+      levelState . undoIndex .= 0
+      viewState . animateRequired .= True
+      viewState . animateForward .= True
+  where
+    eraseBox :: Point -> GameState -> GameState
+    eraseBox box gs =
+      flip execState gs $ do
+        guy <- use $ levelState . worker
+        wc <- getCell guy
+        case wc of
+          Worker _       -> updateCell guy Empty
+          WorkerOnGoal _ -> updateCell guy Goal
+          _              -> return ()
+        bc <- getCell box
+        case bc of
+          Box       -> updateCell box Empty
+          BoxOnGoal -> updateCell box Goal
+          _         -> return ()
+    tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
+    tryMove1Box s t = do
+      srcs <- findBoxDirections s
+      paths <-
+        forM srcs $ \src -> do
+          let dst = PD t D []
+          let pushSolver = buildPushSolver -- :: AStarSolver m PD
+          let stopCond (PD p _ _) = return $ p == t
+          path <- aStarFind pushSolver src dst stopCond
+          return $ pushPathToDirections path
+      let nePaths = filter (not . null) paths
+      let selected =
+            if null nePaths
+              then []
+              else minimumBy (comparing length) nePaths
+      -- levelState . message .= [qm| selected={selected}|]
+      return selected
+
+findBoxDirections :: MonadState GameState m => Point -> m [PD]
+findBoxDirections box = do
+  let moveSolver = buildMoveSolver [box]
+  let isAccessible p = isEmptyOrGoal <$> getCell p
+  let tryBuildPath src dst = do
+        accessible <- isAccessible dst
+        if accessible
+          then aStarFind moveSolver src dst (return . (== dst))
+          else return []
+  w <- use (levelState . worker)
+  -- PD box d <$>
+  paths <- mapM (\d -> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
+  let augPaths = zip [U, D, L, R] paths
+  let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
+  levelState . message .= [qm| dirPoints={dirPoints}|]
+  return dirPoints
+
+buildMoveSolver :: MonadState GameState m => [Point] -> AStarSolver m Point
+buildMoveSolver walls = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  where
+    neighbors p0 = do
+      let isAccessible p =
+            if p `elem` walls
+              then return False
+              else isEmptyOrGoal <$> getCell p
+      let neighs = map (movePoint p0) [U, D, L, R]
+      filterM isAccessible neighs
+    distance np p0 = return $ fromEnum (np /= p0)
+    heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
+
+buildPushSolver :: MonadState GameState m => AStarSolver m PD
+buildPushSolver = do
+  let neighbors (PD p0 d0 _ds0) = do
+        let moveSolver = buildMoveSolver [p0]
+        let isAccessible p = isEmptyOrGoal <$> getCell p
+        let tryBuildPath src dst = do
+              accessible <- isAccessible dst
+              if accessible
+                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
+                else return []
+          -- cont is the "continue push in the direction d0" neighbor
+          -- src is the position of the worker for the push
+          -- directed is the same box but with changed push direction
+        cont <- filterM (\(PD p _ _) -> isAccessible p) [PD (movePoint p0 d0) d0 [d0]]
+        let src = movePoint p0 (opposite d0)
+        let otherDirs = filter (/= d0) [U, D, L, R]
+        paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
+        (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+  let heuristic (PD (Point i1 j1) _ _) (PD (Point i2 j2) _ _) = return $ abs (i1 - i2) + abs (j1 - j2)
+  let distance np p0 = return $ fromEnum (np /= p0)
+  AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
 
 toDirection :: Action -> Direction
 toDirection a =
@@ -485,38 +584,19 @@ showState gs =
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
 
-------------------------------------
--- an example of using hashtable  --
-type Hashtable s k v = CuckooHash.HashTable s k v
+pushPathToDirections :: [PD] -> [Direction]
+pushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
 
-instance (VU.Unbox a, Hashable a) => Hashable (VU.Vector a) where
-  hashWithSalt salt = hashWithSalt salt . VU.toList
-  {-# INLINE hashWithSalt #-}
+pathToDirections :: [Point] -> [Direction]
+pathToDirections ps = reverse $ convert ps []
+  where
+    convert [] _acc = []
+    convert [_] acc = acc
+    convert (p1:p2:ps) acc =
+      case deriveDir p1 p2 of
+        Nothing -> acc
+        Just d  -> convert (p2 : ps) (d : acc)
 
--- MV.STVector s Int
-makeHT :: ST s (Hashtable s (VU.Vector Int) Int)
-makeHT = do
-  ht <- H.new
-  forM_ [0 .. 9] $ \key -> do
-    let vec = VU.replicate 10 0
-    vec0 <- VU.thaw vec
-    VM.write vec0 key (key + 1)
-    vecf <- VU.freeze vec0
-    H.mutate ht vecf $ \case
-      Nothing -> (Just 0, ())
-      Just _ -> (Just 0, ())
-  pure ht
-
-makeAssocList :: [(VU.Vector Int, Int)]
-makeAssocList =
-  runST $ do
-    ht <- makeHT
-    H.toList ht
-
---aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> m [p]
---aStarFind solver src dst = do
---  let astar = aStarInit src
---  evalStateT (aStarFindRec solver dst) astar
 flattenLevel :: GameState -> FlatLevelState
 flattenLevel gs =
   runST $ do
@@ -543,7 +623,7 @@ flattenLevel gs =
     n = gs ^. levelState . width
     cs = gs ^. levelState . cells
     p2f (Point i j) = i * n + j
-    f2p k = Point (k `div` n) (k `mod` n)
+    -- f2p k = Point (k `div` n) (k `mod` n)
 
 unFlattenLevel :: FlatLevelState -> LevelState
 unFlattenLevel _fls = undefined

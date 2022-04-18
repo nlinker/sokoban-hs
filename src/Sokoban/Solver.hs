@@ -104,13 +104,3 @@ backtrace dst closedList = backtraceRec dst [dst]
         Just parent
           | current == parent -> acc
         Just parent -> backtraceRec parent (parent : acc)
-
-pathToDirections :: [Point] -> [Direction]
-pathToDirections ps = reverse $ convert ps []
-  where
-    convert [] _acc = []
-    convert [_] acc = acc
-    convert (p1:p2:ps) acc =
-      case deriveDir p1 p2 of
-        Nothing -> acc
-        Just d  -> convert (p2 : ps) (d : acc)

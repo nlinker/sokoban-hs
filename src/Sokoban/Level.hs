@@ -73,12 +73,24 @@ data Point =
 instance Ord Point where
   compare (Point i1 j1) (Point i2 j2) = compare (i1, j1) (i2, j2)
 
+-- directed point, we can use this for boxes
+data PD =
+  PD Point Direction [Direction]
+  deriving (Eq, Generic, Hashable)
+
+instance Show PD where
+  show (PD (Point i j) d dirs) = "(" <> show i <> " " <> show j <> " " <> show d <> " " <> show dirs <> ")"
+
+instance Ord PD where
+  compare (PD p1 d1 ds1) (PD p2 d2 ds2) = compare (p1, d1, ds1) (p2, d2, ds2)
+
 makeLenses ''Level
 
 makeLenses ''LevelCollection
 
 makePrisms ''Point
 
+makePrisms ''PD
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.

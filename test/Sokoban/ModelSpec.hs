@@ -11,9 +11,9 @@ import Sokoban.Console        (interpretClick, render)
 import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal, levels,
                                movePoint, toCell)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initial, levelState,
-                               viewState, worker)
+                               viewState, worker, pathToDirections)
 import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (AStarSolver(..), aStarFind, pathToDirections)
+import Sokoban.Solver         (AStarSolver(..), aStarFind)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
