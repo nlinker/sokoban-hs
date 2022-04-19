@@ -22,7 +22,7 @@ import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (
 import Control.Lens.TH     (makeLenses, makePrisms)
 import Control.Monad       (filterM, forM, forM_, when)
 import Control.Monad.ST    (runST)
-import Control.Monad.State (MonadState, execState, gets, runState)
+import Control.Monad.State (MonadState, execState, gets, runState, evalState)
 import Data.Foldable       (foldl', minimumBy)
 import Data.Maybe          (fromMaybe)
 import Data.Ord            (comparing)
@@ -30,7 +30,7 @@ import Data.Vector         (Vector, (!))
 import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, PD(..), Point(..),
                             deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker, levels, movePoint,
                             opposite, _PD)
-import Sokoban.Solver      (AStarSolver(..), aStarFind)
+import Sokoban.Solver      (AStarSolver(..), aStarFind, breadFirstFind)
 
 import qualified Data.HashSet                as S
 import           Data.List                   (sort)
@@ -40,6 +40,7 @@ import qualified Data.Vector.Unboxed         as VU
 import qualified Data.Vector.Unboxed.Mutable as VM
 import qualified Sokoban.Level               as L (cells, height, id, width)
 import qualified Text.Builder                as TB
+import Text.InterpolatedString.QM (qm)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -134,6 +135,7 @@ data Action
   | PrevLevel
   | NextLevel
   | SelectBox Point
+  | SelectWorker
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
   | Debug
@@ -157,7 +159,8 @@ runStep action = do
     NextLevel         -> switchLevel (0 + 1)
     MoveWorker dst    -> moveWorkerAlongPath dst
     MoveBoxes src dst -> moveBoxesByWorker src dst
-    SelectBox _       -> return ()
+    SelectWorker      -> calculateWorkerReachability 
+    SelectBox box     -> calculateBoxReachability box 
     Debug             -> dumpState
     -- now compare the sets and check the game completion
   ls <- use levelState
@@ -170,8 +173,8 @@ runStep action = do
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
-  undos <- use $ levelState . undoStack
-  uidx <- use $ levelState . undoIndex
+  undos <- use (levelState . undoStack)
+  uidx <- use (levelState . undoIndex)
   let msg1 = "uidx: " <> show uidx <> "\n"
   let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
   viewState . message .= T.pack msg2
@@ -180,7 +183,7 @@ dumpState = do
 
 restartLevel :: MonadState GameState m => m ()
 restartLevel = do
-  originCells <- use $ levelState . origin
+  originCells <- use (levelState . origin)
   case extractWBH originCells of
     Nothing -> error $ "Invariant violation: " <> show originCells
     Just (w, b, h) -> do
@@ -269,8 +272,8 @@ undoMove diff = do
 
 redoMoveWorker :: MonadState GameState m => m ()
 redoMoveWorker = do
-  undos <- use $ levelState . undoStack
-  uidx <- use $ levelState . undoIndex
+  undos <- use (levelState . undoStack)
+  uidx <- use (levelState . undoIndex)
   when (0 < uidx && uidx <= length undos) $ do
     let UndoItem diffs = undos !! (uidx - 1)
     forM_ diffs $ doMove . (^. direction)
@@ -282,8 +285,8 @@ redoMoveWorker = do
 
 undoMoveWorker :: MonadState GameState m => m ()
 undoMoveWorker = do
-  undos <- use $ levelState . undoStack
-  uidx <- use $ levelState . undoIndex
+  undos <- use (levelState . undoStack)
+  uidx <- use (levelState . undoIndex)
   when (0 <= uidx && uidx < length undos) $ do
     let UndoItem diffs = undos !! uidx
     forM_ (reverse diffs) undoMove
@@ -318,7 +321,7 @@ moveWorker d storeUndo = do
 
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
-  src <- use $ levelState . worker
+  src <- use (levelState . worker)
   let solver = buildMoveSolver []
   dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst))
   diffs' <- sequenceA <$> mapM doMove dirs
@@ -333,25 +336,41 @@ moveWorkerAlongPath dst = do
       viewState . animateRequired .= True
       viewState . animateForward .= True
 
+calculateWorkerReachability :: MonadState GameState m => m ()
+calculateWorkerReachability = undefined
+
 calculateBoxReachability :: MonadState GameState m => Point -> m ()
 calculateBoxReachability box = do
-  boxez <- use $ levelState . boxes
-  when (S.member box boxez) undefined
+  boxez <- use (levelState . boxes)
+  when (S.member box boxez) $ do
+    egs <- gets $ eraseBoxes [box]
+    let area = evalState (findBoxArea box) egs
+    viewState . message .= [qm| {area} |]
+  where
+    findBoxArea :: MonadState GameState m => Point -> m [Point]
+    findBoxArea s = do
+      sources <- findBoxDirections s
+      areas <-
+        forM sources $ \src -> do
+          let pushSolver = buildPushSolver -- :: AStarSolver m PD
+          breadFirstFind pushSolver src
+      let commonArea = (^.(_PD . _1)) <$> concat (filter (not . null) areas)
+      let dedupArea = S.toList $ S.fromList commonArea
+      return dedupArea 
 
 moveBoxesByWorker :: MonadState GameState m => [Point] -> [Point] -> m ()
 moveBoxesByWorker src dst = do
   dirs <-
     case (src, dst) of
       ([s], [t]) -> do
-        erasedGs <- gets $ eraseBox [s]
+        erasedGs <- gets $ eraseBoxes [s]
         let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
         -- erase source box to not break path finding and avoid spoil the current gs
         -- viewState . message .= (dbgGs ^. viewState . message)
         -- viewState . doClearScreen .= True
         return dirs
       ([s1, s2], [t1, t2]) -> do
-        erasedGs <- gets $ eraseBox [s1, s2]
-        -- erase source boxes to not break path finding and avoid spoil the current gs
+        erasedGs <- gets $ eraseBoxes [s1, s2]
         let (dirs, _dbgGs) = runState (tryMove2Boxes [s1, s2] [t1, t2]) erasedGs
         -- viewState . message .= (dbgGs ^. viewState . message)
         -- viewState . doClearScreen .= True
@@ -369,21 +388,6 @@ moveBoxesByWorker src dst = do
       viewState . animateRequired .= True
       viewState . animateForward .= True
   where
-    eraseBox :: [Point] -> GameState -> GameState
-    eraseBox boxez gs =
-      flip execState gs $ do
-        guy <- use $ levelState . worker
-        wc <- getCell guy
-        case wc of
-          Worker _       -> updateCell guy Empty
-          WorkerOnGoal _ -> updateCell guy Goal
-          _              -> return ()
-        forM_ boxez $ \box -> do
-          bc <- getCell box
-          case bc of
-            Box       -> updateCell box Empty
-            BoxOnGoal -> updateCell box Goal
-            _         -> return ()
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       srcs <- findBoxDirections s
@@ -403,6 +407,24 @@ moveBoxesByWorker src dst = do
       return selected
     tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
     tryMove2Boxes _ss _ts = return []
+
+-- erase source boxes to not break path finding and avoid spoil the current gs
+eraseBoxes :: [Point] -> GameState -> GameState
+eraseBoxes boxez gs =
+  flip execState gs $ do
+    guy <- use (levelState . worker)
+    wc <- getCell guy
+    case wc of
+      Worker _       -> updateCell guy Empty
+      WorkerOnGoal _ -> updateCell guy Goal
+      _              -> return ()
+    forM_ boxez $ \box -> do
+      bc <- getCell box
+      case bc of
+        Box       -> updateCell box Empty
+        BoxOnGoal -> updateCell box Goal
+        _         -> return ()
+
 
 findBoxDirections :: MonadState GameState m => Point -> m [PD]
 findBoxDirections box = do

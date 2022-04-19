@@ -59,15 +59,20 @@ dh1Collection =
     , _levels = fromJust $ parseLevels dh1
     }
 
-yoshiroAuto :: T.Text
-yoshiroAuto =
+simplestEver :: T.Text
+simplestEver = 
   T.pack
     [str|
 ; 0
 #######
 #@$ . #
 #######
+|]  
 
+yoshiroAuto :: T.Text
+yoshiroAuto =
+  T.pack
+    [str|
 ; 1
  ######
 ##  . #

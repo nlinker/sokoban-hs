@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE QuasiQuotes           #-}
 
 module Sokoban.Solver where
 
@@ -18,7 +19,6 @@ import Control.Lens.TH     (makeLenses)
 import Control.Monad       (forM_, when)
 import Control.Monad.State (StateT, evalStateT, lift, gets)
 import Data.Hashable       (Hashable)
-import Sokoban.Level       (Direction(..), Point(..), deriveDir)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashPSQ        as Q
@@ -38,6 +38,13 @@ data AStar p =
     }
   deriving (Eq, Show)
 
+data BreadFirst p =
+  BreadFirst
+    { _openListB   :: Q.HashPSQ p Int (Weight p)
+    , _closedListB :: H.HashMap p ()
+    }
+  deriving (Eq, Show)
+
 data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Ord p) =>
     { neighbors :: p -> m [p]
@@ -47,6 +54,7 @@ data AStarSolver m p where
 
 makeLenses ''Weight
 makeLenses ''AStar
+makeLenses ''BreadFirst
 
 aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
 aStarFind solver src dst stopCond = do
@@ -95,21 +103,38 @@ aStarFindRec solver dst stopCond = do
                -> openList .= Q.insert np f1 w1 openList0
           aStarFindRec solver dst stopCond
 
-breadFirstSearch :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> m [p]
-breadFirstSearch solver src = do
-  let astar = aStarInit src
-  evalStateT (breadFirstSearchRec solver) astar
+backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
+backtrace dst closedList = backtraceRec dst [dst]
+  where
+    backtraceRec current acc = -- we repeatedly lookup for the parent of the current node
+      case H.lookup current closedList of
+        Nothing -> []
+        Just parent
+          | current == parent -> acc
+        Just parent -> backtraceRec parent (parent : acc)
 
-breadFirstSearchRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> StateT (AStar p) m [p]
-breadFirstSearchRec solver = do
-  -- TODO finish it
-  openList0 <- use openList
-  closedList0 <- use closedList
+breadFirstFind :: (Monad m, Hashable p, Ord p, Show p) => AStarSolver m p -> p -> m [p]
+breadFirstFind solver src = do
+  let bf = breadFirstInit src
+  evalStateT (breadFirstFindRec solver) bf
+
+breadFirstInit :: (Hashable p, Ord p, Show p) => p -> BreadFirst p
+breadFirstInit src = do
+  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
+      openList = Q.singleton src (weight ^. fScore) weight
+      closedList = H.empty :: H.HashMap p ()
+   in BreadFirst openList closedList
+
+breadFirstFindRec :: (Monad m, Hashable p, Ord p, Show p) => AStarSolver m p -> StateT (BreadFirst p) m [p]
+breadFirstFindRec solver = do
+  openList0 <- use openListB
+  closedList0 <- use closedListB
   case Q.findMin openList0 of
-    Nothing -> return []
+    Nothing -> do
+      return $ H.keys closedList0
     Just (p0, _, weight0) -> do
-          openList %= Q.delete p0
-          closedList %= H.insert p0 (weight0 ^. parent)
+          openListB %= Q.delete p0
+          closedListB %= H.insert p0 ()
           neighbors <- lift $ neighbors solver p0
           let neighPoints = filter (not . (`H.member` closedList0)) neighbors
           -- `k` is the current node, `fs` is f-score
@@ -123,18 +148,8 @@ breadFirstSearchRec solver = do
               Just (_, w)
                   -- the neighbour can be reached with smaller cost - change priority
                   -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
-               -> when (g1 < (w ^. gScore)) $ openList .= Q.insert np f1 w1 openList0
+               -> when (g1 < (w ^. gScore)) $ openListB .= Q.insert np f1 w1 openList0
               Nothing
                 -- the neighbour is new
-               -> openList .= Q.insert np f1 w1 openList0
-          breadFirstSearchRec solver
-
-backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
-backtrace dst closedList = backtraceRec dst [dst]
-  where
-    backtraceRec current acc = -- we repeatedly lookup for the parent of the current node
-      case H.lookup current closedList of
-        Nothing -> []
-        Just parent
-          | current == parent -> acc
-        Just parent -> backtraceRec parent (parent : acc)
+               -> openListB .= Q.insert np f1 w1 openList0
+          breadFirstFindRec solver

@@ -17,7 +17,7 @@ import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, when)
-import Control.Monad.State        (MonadState, execState, runState)
+import Control.Monad.State        (MonadState, execState, runState, runStateT)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
@@ -28,14 +28,15 @@ import Sokoban.Model              (GameState(..), ViewState(..), animateForward,
                                    cells, clicks, destinations, direction, doClearScreen, doMove,
                                    getCell, height, id, initial, isComplete, levelState, levelState,
                                    message, moveCount, pushCount, stats, step, undoIndex, undoMove,
-                                   undoStack, viewState, width, _UndoItem)
+                                   undoStack, viewState, width, _UndoItem, worker, buildMoveSolver)
+import Sokoban.Solver             (breadFirstFind)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (yoshiroAutoCollection)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import Text.InterpolatedString.QM (qms)
+import Text.InterpolatedString.QM (qms, qm)
 import Text.Read                  (readMaybe)
 
 import qualified Data.HashSet  as S
@@ -194,7 +195,7 @@ interpretClick gs key = runState runInterpretClick gs
                        return Nothing
                      | isBox c0 -> do
                        viewState . clicks .= [p0]
-                       return Nothing
+                       return $ Just $ A.SelectBox p0 
                      | otherwise -> do
                        viewState . clicks .= []
                        return Nothing
@@ -325,3 +326,16 @@ render gs = do
         Goal -> ('⁘', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
+
+
+------------------------------------------------------------------------------------------------------------------------
+runTest :: IO ()
+runTest = do
+  gs0 <- buildGameState []
+  let gs = step gs0 A.NextLevel
+  (_, gs) <- flip runStateT gs $ do
+    let moveSolver = buildMoveSolver []
+    w <- use (levelState . worker)
+    area <- breadFirstFind moveSolver w
+    viewState . message .= [qm| area = {area}|]
+  render gs
