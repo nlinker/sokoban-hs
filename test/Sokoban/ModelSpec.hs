@@ -10,7 +10,7 @@ import Data.Maybe             (fromJust)
 import Sokoban.Console        (interpretClick, render)
 import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal, levels,
                                movePoint, toCell)
-import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initial, levelState,
+import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initialLevelState, levelState,
                                viewState, worker, pathToDirections)
 import Sokoban.Resources      (yoshiroAutoCollection)
 import Sokoban.Solver         (AStarSolver(..), aStarFind)
@@ -25,7 +25,7 @@ gs =
   GameState
     { _collection = yoshiroAutoCollection
     , _index = 0
-    , _levelState = fromJust $ initial $ head $ yoshiroAutoCollection ^. levels
+    , _levelState = fromJust $ initialLevelState $ head $ yoshiroAutoCollection ^. levels
     , _viewState = ViewState False [] S.empty False False ""
     }
 
@@ -92,6 +92,9 @@ spec = do
     it "unbox Cell (from . to)" $ do
       let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
       map (fromCell . toCell) codes `shouldBe` codes
+
+--  describe "box pathfinding" $
+
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))

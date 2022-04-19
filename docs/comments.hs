@@ -440,4 +440,5 @@ aStarFind solver src dst = do
 
 import Text.InterpolatedString.QM (qm)
 
+viewState . message %= (\msg -> T.replicate (T.length msg) " ")
 -}

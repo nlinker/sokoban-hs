@@ -59,14 +59,69 @@ dh1Collection =
     , _levels = fromJust $ parseLevels dh1
     }
 
-simplestEver :: T.Text
-simplestEver = 
+testCollection :: LevelCollection
+testCollection =
+  LevelCollection
+    { _title = "test"
+    , _description = ""
+    , _email = ""
+    , _url = "http://sokobano.de/wiki/index.php?title=DHolland_S3"
+    , _copyright = ""
+    , _levels = fromJust $ parseLevels testRaw
+    }
+
+testRaw :: T.Text
+testRaw = 
   T.pack
     [str|
-; 0
+; 1 Long
+ #########
+ #  ##   #
+ #   @   #
+ #  ### ##
+### ### #
+#..  ## #
+####$## #
+ #  $ # #
+ #    # #
+ # #  # ##
+## ####  #
+#        #
+#   ###  #
+##### ####
+
+; 0 Simplest
 #######
 #@$ . #
 #######
+
+; 2 Solvable
+    #####
+    # @ ######
+    # $      #
+    ## ##### # #####
+#####  #  ## ###   #
+#   #$    #   #  # ##
+# $    $ .. $    #  #
+## ##### ## ###    .#
+#  ####   #  ## ##  #
+#       .    #   ####
+############## . #
+             #####
+
+; 3 Unsolvable
+    #####
+    # @ ######
+    # $      #
+    ## ##### # #####
+#####  #  ## ###   #
+#   #     #   #  # ##
+# $      ** $    #  #
+## ##### ## ###    .#
+#  ####   #  ## ##  #
+#       .    #   ####
+############## . #
+             #####
 |]  
 
 yoshiroAuto :: T.Text

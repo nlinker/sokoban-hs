@@ -15,7 +15,7 @@ import Prelude hiding (id)
 
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
-import Control.Lens               (use, (&), (.=), (.~), (^.))
+import Control.Lens               (use, (&), (.=), (.~), (^.), (<>=))
 import Control.Monad              (forM_, when)
 import Control.Monad.State        (MonadState, execState, runState, runStateT)
 import Data.Char                  (isDigit)
@@ -25,24 +25,29 @@ import Data.Vector                ((!))
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
 import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
-                                   cells, clicks, destinations, direction, doClearScreen, doMove,
-                                   getCell, height, id, initial, isComplete, levelState, levelState,
-                                   message, moveCount, pushCount, stats, step, undoIndex, undoMove,
-                                   undoStack, viewState, width, _UndoItem, worker, buildMoveSolver)
-import Sokoban.Solver             (breadFirstFind)
+                                   buildMoveSolver, cells, clicks, destinations, direction,
+                                   doClearScreen, doMove, getCell, height, id, initialLevelState,
+                                   isComplete, levelState, levelState, message, moveCount,
+                                   pushCount, stats, step, undoIndex, undoMove, undoStack,
+                                   viewState, width, worker, _UndoItem)
 import Sokoban.Parser             (parseLevels, splitWith)
-import Sokoban.Resources          (yoshiroAutoCollection)
+import Sokoban.Resources          (dh1Collection, testCollection)
+import Sokoban.Solver             (breadFirstFind)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import Text.InterpolatedString.QM (qms, qm)
+import Text.InterpolatedString.QM (qm, qms)
 import Text.Read                  (readMaybe)
 
+import           Data.Bool     (bool)
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
+
+animationTickDelay :: Int
+animationTickDelay = 30 * 1000
 
 whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
@@ -80,11 +85,11 @@ buildGameState :: [String] -> IO GameState
 buildGameState args = do
   levelCollection <-
     if null args
-      then return yoshiroAutoCollection -- default
+      then return testCollection -- default
       else do
         let fileName = head args
         levels0 <- fromMaybe (error $ "Cannot parse file " <> fileName) . parseLevels <$> T.readFile fileName
-        let levels = filter (isJust . initial) levels0 -- check invariants for each level as well
+        let levels = filter (isJust . initialLevelState) levels0 -- check invariants for each level as well
         when (null levels) $ error $ "File " <> fileName <> " contains no sokoban levels"
         return $
           LevelCollection
@@ -94,7 +99,7 @@ buildGameState args = do
     GameState
       { _collection = levelCollection
       , _index = 0
-      , _levelState = fromMaybe (error "Impossible") $ initial $ head (levelCollection ^. levels)
+      , _levelState = fromMaybe (error "Impossible") $ initialLevelState $ head (levelCollection ^. levels)
       , _viewState = ViewState False [] S.empty False False "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
       }
 
@@ -153,14 +158,14 @@ animate gsFrom gsTo = do
       let gs2 = execState (doMove dir) gs
       moveCursorToOrigin
       render gs2
-      threadDelay (50 * 1000)
+      threadDelay animationTickDelay
       animateDo gs2 dirs
     animateUndo _ [] = return ()
     animateUndo gs (diff:diffs) = do
       let gs2 = execState (undoMove diff) gs
       moveCursorToOrigin
       render gs2
-      threadDelay (50 * 1000)
+      threadDelay animationTickDelay
       animateUndo gs2 diffs
 
 interpretClick :: GameState -> String -> (Maybe A.Action, GameState)
@@ -176,64 +181,71 @@ interpretClick gs key = runState runInterpretClick gs
                Nothing -> return Nothing
                Just (_, True) -> return Nothing
                Just (click, False) -> do
-                 let gather clks =
+                 let gather clks -- avoid duplications
+                      =
                        if click `elem` clks
                          then []
                          else click : clks
                  clickz <- gather <$> use (viewState . clicks)
                  cellz <- mapM getCell clickz
-                 case (clickz, cellz) of
-                   ([], []) -> do
-                     viewState . clicks .= []
-                     return Nothing
-                   ([p0], [c0])
-                     | isEmptyOrGoal c0 -> do
-                       viewState . clicks .= []
-                       return $ Just $ A.MoveWorker p0
-                     | isWorker c0 -> do
-                       viewState . clicks .= [p0]
-                       return Nothing
-                     | isBox c0 -> do
-                       viewState . clicks .= [p0]
-                       return $ Just $ A.SelectBox p0 
-                     | otherwise -> do
+                 action <-
+                   case (clickz, cellz) of
+                     ([], []) -> do
                        viewState . clicks .= []
                        return Nothing
-                   ([p1, p0], [c1, c0])
-                     | isWorker c0 && isDestination c1 -> do
-                       viewState . clicks .= []
-                       return $ Just $ A.MoveWorker p1
-                     | isBox c0 && isDestination c1 -> do
-                       viewState . clicks .= []
-                       return $ Just $ A.MoveBoxes [p0] [p1]
-                     | isBox c0 && isBox c1 -> do
-                       viewState . clicks .= [p1, p0]
-                       return Nothing
-                     | otherwise -> do
+                     ([p0], [c0])
+                       | isEmptyOrGoal c0 -> do
+                         viewState . clicks .= []
+                         return $ Just $ A.MoveWorker p0
+                       | isWorker c0 -> do
+                         viewState . clicks .= [p0]
+                         return $ Just A.SelectWorker
+                       | isBox c0 -> do
+                         viewState . clicks .= [p0]
+                         return $ Just $ A.SelectBox p0
+                       | otherwise -> do
+                         viewState . clicks .= []
+                         return Nothing
+                     ([p1, p0], [c1, c0])
+                       | isWorker c0 && isDestination c1 -> do
+                         viewState . clicks .= []
+                         return $ Just $ A.MoveWorker p1
+                       | isBox c0 && isDestination c1 -> do
+                         viewState . clicks .= []
+                         return $ Just $ A.MoveBoxes [p0] [p1]
+                       | isBox c0 && isBox c1 -> do
+                         viewState . clicks .= [p1, p0]
+                         return $ Just $ A.SelectBox p1
+                       | otherwise -> do
+                         viewState . clicks .= []
+                         return Nothing
+                     ([p2, p1, p0], [c2, c1, c0])
+                       | isBox c0 && isBox c1 && isDestination c2 -> do
+                         viewState . clicks .= [p2, p1, p0]
+                         return Nothing
+                       | otherwise -> do
+                         viewState . clicks .= []
+                         return Nothing
+                     ([p3, p2, p1, p0], [c3, c2, c1, c0])
+                       | isBox c0 && isBox c1 && isDestination c2 && isDestination c3 -> do
+                         viewState . clicks .= []
+                         return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
+                     ([p3, p2, p1, p0], [c3, c2, c1, c0])
+                       | isBox c0 && isBox c1 && isDestination c2 && isBox c3 -> do
+                         viewState . clicks .= []
+                         return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
+                       | otherwise -> do
+                         viewState . clicks .= []
+                         return Nothing
+                     _ -> do
                        viewState . clicks .= [] -- reset tracking clicks
+                       viewState . destinations .= S.empty
                        return Nothing
-                   ([p2, p1, p0], [c2, c1, c0])
-                     | isBox c0 && isBox c1 && isDestination c2 -> do
-                       viewState . clicks .= [p2, p1, p0]
-                       return Nothing
-                     | otherwise -> do
-                       viewState . clicks .= []
-                       return Nothing
-                   ([p3, p2, p1, p0], [c3, c2, c1, c0])
-                     | isBox c0 && isBox c1 && isDestination c2 && isDestination c3 -> do
-                       viewState . clicks .= []
-                       return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
-                   ([p3, p2, p1, p0], [c3, c2, c1, c0])
-                     | isBox c0 && isBox c1 && isDestination c2 && isBox c3 -> do
-                       viewState . clicks .= []
-                       return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
-                     | otherwise -> do
-                       viewState . clicks .= []
-                       return Nothing
+                 case action of
+                   Just (A.SelectBox _) -> return action
                    _ -> do
-                     viewState . clicks .= [] -- reset tracking clicks
                      viewState . destinations .= S.empty
-                     return Nothing
+                     return action
 
 isDestination :: Cell -> Bool
 isDestination c =
@@ -277,16 +289,17 @@ render gs = do
   let cs = ls ^. cells
   let m = ls ^. height
   let n = ls ^. width
-  let clickz = vs ^. clicks
+  let dest = vs ^. destinations
   let points = [Point i j | i <- [0 .. m - 1], j <- [0 .. n - 1]]
   forM_ points $ \p -> do
     let Point i j = p
-    let (char, color) = getCellSkin ((cs ! i) ! j) (p `elem` clickz)
+    let click = p `elem` (vs ^. clicks)
+    let (char, color) = getCellSkin ((cs ! i) ! j) (S.member p dest) click
     let suffix =
           if j /= 0
             then " " <> [char]
             else "  " <> [char]
-    if p `elem` (vs ^. clicks)
+    if click
       then colorStr color True suffix
       else colorStr color False suffix
     when (j == n - 1) $ putStrLn ""
@@ -305,37 +318,56 @@ render gs = do
       putStr str
       setSGR []
       putStr ""
-    -- cell and the flag whether it is selected (true if selected)
-    getCellSkin :: Cell -> Bool -> (Char, Color)
-    getCellSkin c _ =
+    -- dst - is it the calculated destination for a box or worker
+    -- click - is it selected by the mouse (true if selected)
+    getCellSkin ::  Cell -> Bool -> Bool -> (Char, Color)
+    getCellSkin c dest click =
       case c of
         (Worker d) ->
-          case d of
-            U -> ('◒', Green)
-            D -> ('◓', Green)
-            L -> ('◑', Green)
-            R -> ('◐', Green)
+          let color =
+                if dest
+                  then White
+                  else Green
+           in case d of
+                U -> ('◒', color)
+                D -> ('◓', color)
+                L -> ('◑', color)
+                R -> ('◐', color)
         (WorkerOnGoal d) ->
-          case d of
-            U -> ('◒', Red)
-            D -> ('◓', Red)
-            L -> ('◑', Red)
-            R -> ('◐', Red)
+          let color =
+                if dest
+                  then White
+                  else Red
+           in case d of
+                U -> ('◒', color)
+                D -> ('◓', color)
+                L -> ('◑', color)
+                R -> ('◐', color)
         Wall -> ('▩', Blue)
-        Empty -> (' ', White)
-        Goal -> ('⁘', Red)
+        Empty ->
+          case (dest, click) of
+            (True, True)   -> ('꘎', White)
+            (False, True)  -> ('꘎', White)
+            (True, False)  -> ('·', White)
+            (False, False) -> (' ', White)
+        Goal ->
+            case (dest, click) of
+              (True, True)   -> ('✦', White)
+              (False, True)  -> ('✧', Red)
+              (True, False)  -> ('✦', White)
+              (False, False) -> ('✧', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
-
 
 ------------------------------------------------------------------------------------------------------------------------
 runTest :: IO ()
 runTest = do
   gs0 <- buildGameState []
   let gs = step gs0 A.NextLevel
-  (_, gs) <- flip runStateT gs $ do
-    let moveSolver = buildMoveSolver []
-    w <- use (levelState . worker)
-    area <- breadFirstFind moveSolver w
-    viewState . message .= [qm| area = {area}|]
+  (_, gs) <-
+    flip runStateT gs $ do
+      let moveSolver = buildMoveSolver []
+      w <- use (levelState . worker)
+      area <- breadFirstFind moveSolver w
+      viewState . message .= [qm| area = {area}|]
   render gs
