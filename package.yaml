@@ -67,3 +67,4 @@ dependencies:
     - psqueues
     - stm-containers
     - qm-interpolated-string
+    - parallel

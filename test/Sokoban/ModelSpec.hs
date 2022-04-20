@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Sokoban.ModelSpec where
@@ -42,7 +43,7 @@ spec = do
       let vs = gs ^. viewState
       let (a1, gs1) = interpretClick gs (mouse 2 2)
       let (a2, gs2) = interpretClick gs1 (mouse 2 3)
-      (a1, gs1 ^. viewState) `shouldBe` (Nothing, vs & clicks .~ [Point 2 2])
+      (a1, gs1 ^. viewState) `shouldBe` (Just (A.SelectBox (Point 2 2)), vs & clicks .~ [Point 2 2])
       (a2, gs2 ^. viewState) `shouldBe` (Just (A.MoveBoxes [Point 2 2] [Point 2 3]), vs & clicks .~ [])
     it "1 box move" $ gs `shouldBe` gs
   describe "path finding" $ do
@@ -93,7 +94,7 @@ spec = do
       let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
       map (fromCell . toCell) codes `shouldBe` codes
 
---  describe "box pathfinding" $
+--  describe "box path finding" $
 
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"

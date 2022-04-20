@@ -362,12 +362,22 @@ render gs = do
 ------------------------------------------------------------------------------------------------------------------------
 runTest :: IO ()
 runTest = do
+  clearScreen
   gs0 <- buildGameState []
-  let gs = step gs0 A.NextLevel
-  (_, gs) <-
-    flip runStateT gs $ do
-      let moveSolver = buildMoveSolver []
-      w <- use (levelState . worker)
-      area <- breadFirstFind moveSolver w
-      viewState . message .= [qm| area = {area}|]
-  render gs
+  let gs1 = step gs0 (A.MoveBoxes [Point 7 4] [Point 7 3])
+  let gs2 = step gs1 (A.MoveBoxes [Point 6 4] [Point 8 3])
+  let gs3 = step gs2 (A.MoveBoxes [Point 7 3] [Point 8 4])
+  let gs4 = step gs3 (A.MoveBoxes [Point 8 4] [Point 7 4])
+  let gs5 = step gs4 (A.MoveBoxes [Point 8 3] [Point 9 2])
+  let gs6 = step gs5 (A.MoveBoxes [Point 7 4] [Point 7 3])
+  let gs7 = step gs6 (A.SelectBox (Point 9 2))
+  let gs8 = step gs7 (A.MoveBoxes [Point 9 2] [Point 5 1])
+  let gs9 = step gs8 (A.SelectBox (Point 7 3))
+  let gs10 = step gs9 (A.MoveBoxes [Point 7 3] [Point 5 2])
+  render gs10
+--  (_, gs) <-
+--    flip runStateT gs4 $ do return ()
+--      let moveSolver = buildMoveSolver []
+--      w <- use (levelState . worker)
+--      area <- breadFirstFind moveSolver w
+--      viewState . message .= [qm| area = {area}|]
