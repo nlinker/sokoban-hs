@@ -9,19 +9,39 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE Strict #-}
 
 module Sokoban.Solver where
 
 import Prelude hiding (Left, Right, id)
 
-import Control.Lens        (use, (%=), (.=), (^.))
-import Control.Lens.TH     (makeLenses)
-import Control.Monad       (forM_, when)
-import Control.Monad.State (StateT, evalStateT, lift, gets)
-import Data.Hashable       (Hashable)
+import Control.Lens            (use, (%=), (.=), (^.))
+import Control.Lens.TH         (makeLenses)
+import Control.Monad           (forM_, when)
+import Control.Monad.State     (StateT, evalStateT, lift, gets)
+import Data.Hashable           (Hashable)
+import Control.Monad.Primitive (PrimMonad, PrimState)
+import Control.Monad.ST        (ST, runST)
 
-import qualified Data.HashMap.Strict as H
-import qualified Data.HashPSQ        as Q
+import qualified Data.HashMap.Strict      as H
+import qualified Data.HashPSQ             as Q
+import qualified Data.Heap.Mutable.ModelD as HeapD
+import qualified Data.Map.Strict          as Map
+import qualified Data.Set                 as Set
+
+import Data.Monoid   (All (..))
+import Data.List     (groupBy)
+import Sokoban.Level (Point)
+import Data.Word     (Word32)
+import Data.Coerce   (coerce)
+import Data.Function (on)
+import Control.Monad.Identity (runIdentity)
+import Debug.Trace (traceShowM, traceM, trace)
+import Text.InterpolatedString.QM (qm)
 
 data Weight p =
   Weight
@@ -31,12 +51,16 @@ data Weight p =
     }
   deriving (Eq, Show)
 
+makeLenses ''Weight
+
 data AStar p =
   AStar
     { _openList   :: Q.HashPSQ p Int (Weight p)
     , _closedList :: H.HashMap p p
     }
   deriving (Eq, Show)
+
+makeLenses ''AStar
 
 data BreadFirst p =
   BreadFirst
@@ -45,6 +69,8 @@ data BreadFirst p =
     }
   deriving (Eq, Show)
 
+makeLenses ''BreadFirst
+
 data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Ord p) =>
     { neighbors :: p -> m [p]
@@ -52,14 +78,65 @@ data AStarSolver m p where
     , heuristic :: p -> p -> m Int
     } -> AStarSolver m p
 
-makeLenses ''Weight
-makeLenses ''AStar
-makeLenses ''BreadFirst
+newtype Min =
+  Min Int
+  deriving (Show, Read, Eq, Ord)
+  
+instance Semigroup Min where
+  (<>) (Min a) (Min b) = Min (min a b)
 
-aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
-aStarFind solver src dst stopCond = do
+instance Monoid Min where
+  mempty = Min maxBound
+
+newtype MyElement = MyElement { getMyElement :: Int }
+  deriving (Show,Read,Eq,Ord)
+
+-- λ> :rr heapMatchesList $ (\(f,s) -> (Min f, MyElement s)) <$> [(1,4),(2,3),(3,2),(4,1)]
+heapMatchesList :: [(Min,MyElement)] -> Bool
+heapMatchesList xs' = runIdentity $ do
+  let xs = coerce xs' :: [(Min,Int)]
+  let xsSet = fmap (\(p,e) -> (e,p)) xs
+  let ys = Map.fromListWith mappend xsSet
+  let listRes = Map.toList $ Map.fromListWith Set.union $ map (\(e,p) -> (p,Set.singleton e)) (Map.toList ys)
+  let heapRes = runST $ do
+        h <- HeapD.new 1000
+        HeapD.pushList xs h
+        ij0 <- HeapD.pop h
+        traceM $ "ij0=" <> show ij0
+        HeapD.push (Min 2) 4 h
+        ij1 <- HeapD.pop h
+        traceM $ "ij1=" <> show ij1
+        ij2 <- HeapD.pop h
+        traceM $ "ij2=" <> show ij2
+        ij3 <- HeapD.pop h
+        traceM $ "ij3=" <> show ij3
+        ij4 <- HeapD.pop h
+        traceM $ "ij4=" <> show ij4
+        ijs <- HeapD.popAll h
+        return $ ijs
+  let heapResSet = map (\pairs@((p,_) : _) -> (p,Set.fromList $ map snd pairs))
+        $ groupBy (on (==) fst) heapRes
+  return $ trace [qm| xs={xs}\nheapRes={heapRes}|] $ heapResSet == listRes
+
+aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> (p -> Int) -> (Int -> p) -> m [p]
+aStarFind solver src dst stopCond p2i i2p = do
   let astar = aStarInit src
-  evalStateT (aStarFindRec solver dst stopCond) astar
+  let path = []
+  path <- runST $ do
+    heap <- HeapD.new (maxBound :: Int)
+    HeapD.unsafePush (mempty :: Min) (p2i src) heap -- f_score for src
+    ast <- aStarInitST src
+    undefined
+  return path
+  where
+
+aStarInitST :: (PrimMonad m, Ord p) => p -> m (AStar p)
+aStarInitST = undefined 
+--    p2f (Point i j) = i * n + j
+--    f2p k = Point (k `div` n) (k `mod` n)
+
+aStarFindST :: (PrimMonad m, Hashable p, Ord p) => m [p]
+aStarFindST = undefined
 
 aStarInit :: (Hashable p, Ord p) => p -> AStar p
 aStarInit src =
@@ -80,7 +157,7 @@ aStarFindRec solver dst stopCond = do
         then do
           closedList %= H.insert p0 (weight0 ^. parent)
           gets $ backtrace p0 <$> flip (^.) closedList
-        else do    
+        else do
           openList %= Q.delete p0
           closedList %= H.insert p0 (weight0 ^. parent)
           neighbors <- lift $ neighbors solver p0

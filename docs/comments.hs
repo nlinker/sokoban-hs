@@ -473,4 +473,21 @@ flattenLevel gs =
 unFlattenLevel :: FlatLevelState -> LevelState
 unFlattenLevel _fls = undefined
 
+~/h/sokoban-hs ❯❯❯ stack build --work-dir .stack-work-profile --profile
+~/h/sokoban-hs ❯❯❯ stack --profile --work-dir .stack-work-profile run sokoban --rts-options -p
+
+-- Add stm-containers to dependencies
+stack.yaml:
+-----------
+extra-deps:
+  - cabal-info-0.1.0.0
+  - impure-containers-0.5.0
+  - stm-containers-1.1.0.4
+  - stm-hamt-1.2.0.4
+
+package.yaml:
+-------------
+dependencies:
+    - stm-containers
+
 -}

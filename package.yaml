@@ -65,6 +65,9 @@ dependencies:
     - vector
     - lens
     - psqueues
-    - stm-containers
     - qm-interpolated-string
     - parallel
+    - pqueue
+    - impure-containers
+    - primitive
+    - containers

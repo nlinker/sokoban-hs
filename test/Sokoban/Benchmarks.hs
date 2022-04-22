@@ -2,17 +2,6 @@ module Sokoban.Benchmarks where
 
 import Criterion.Main (bench, bgroup, defaultMain, whnf)
 
-import qualified StmContainers.Map as StmMap
-import Data.Hashable (Hashable)
-import GHC.Conc (STM)
-
-interpretStmMapUpdate :: (Hashable k, Eq k) => k -> v -> STM (StmMap.Map k v)
-interpretStmMapUpdate k v = do
-  m <- StmMap.new
-  StmMap.insert v k m
-  return m
-
-
 -- The function we're benchmarking.
 --fib :: (Ord a, Num a, Num p) => a -> p
 fib :: Integer -> Integer

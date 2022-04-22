@@ -19,7 +19,7 @@ import qualified Prelude as P
 import Control.Arrow              (second)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
-import Control.Lens.TH            (makeLenses, makePrisms)
+import Control.Lens.TH            (makeLenses, makePrisms, mkLabels)
 import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.ST           (runST)
 import Control.Monad.State        (MonadState, evalState, execState, get, gets, runState)
@@ -108,19 +108,9 @@ data FlatLevelState =
     }
   deriving (Eq, Show)
 
-makeLenses ''Diff
+$(mkLabels [''Diff, ''LevelState, ''ViewState, ''Stats, ''FlatLevelState, ''GameState])
 
 makePrisms ''UndoItem
-
-makeLenses ''LevelState
-
-makeLenses ''ViewState
-
-makeLenses ''Stats
-
-makeLenses ''GameState
-
-makeLenses ''FlatLevelState
 
 data Action
   = Up

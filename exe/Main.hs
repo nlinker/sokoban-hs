@@ -4,5 +4,5 @@ module Main where
 import qualified Sokoban.Console as S
 
 main :: IO ()
-main = S.runTest
+main = S.run
 
