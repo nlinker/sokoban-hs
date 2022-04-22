@@ -185,18 +185,18 @@ isWall c = c == Wall
 ------------------------------------------------
 -- unboxed representation for Vector of Cells --
 ------------------------------------------------
-fromDirection :: Direction -> Word8
-{-# INLINE fromDirection #-}
-fromDirection d =
+w8FromDirection :: Direction -> Word8
+{-# INLINE w8FromDirection #-}
+w8FromDirection d =
   case d of
     U -> 0
     D -> 1
     L -> 2
     R -> 3
 
-toDirection :: Word8 -> Direction
-{-# INLINE toDirection #-}
-toDirection w =
+w8ToDirection :: Word8 -> Direction
+{-# INLINE w8ToDirection #-}
+w8ToDirection w =
   case w of
     0 -> U
     1 -> D
@@ -209,10 +209,10 @@ fromCell c =
   case c of
     Empty          -> 0 * 8 + 0
     Box            -> 0 * 8 + 1
-    Worker d       -> 0 * 8 + 4 + fromDirection d
+    Worker d       -> 0 * 8 + 4 + w8FromDirection d
     Goal           -> 1 * 8 + 0
     BoxOnGoal      -> 1 * 8 + 1
-    WorkerOnGoal d -> 1 * 8 + 4 + fromDirection d
+    WorkerOnGoal d -> 1 * 8 + 4 + w8FromDirection d
     Wall           -> 2 * 8 + 0
 
 toCell :: Word8 -> Cell
@@ -223,10 +223,10 @@ toCell w =
    in case (stable, movable) of
         (0, 0) -> Empty
         (0, 1) -> Box
-        (0, d) -> Worker (toDirection (d - 4))
+        (0, d) -> Worker (w8ToDirection (d - 4))
         (1, 0) -> Goal
         (1, 1) -> BoxOnGoal
-        (1, d) -> WorkerOnGoal (toDirection (d - 4))
+        (1, d) -> WorkerOnGoal (w8ToDirection (d - 4))
         _      -> Wall
 
 newtype instance  MVector s Cell = MV_Cell (P.MVector s Word8)

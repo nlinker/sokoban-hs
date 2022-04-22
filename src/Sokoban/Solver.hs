@@ -32,6 +32,7 @@ import qualified Data.HashPSQ             as Q
 import qualified Data.Heap.Mutable.ModelD as HeapD
 import qualified Data.Map.Strict          as Map
 import qualified Data.Set                 as Set
+import qualified Data.HashMap.Mutable.Basic as HM
 
 import Data.Monoid   (All (..))
 import Data.List     (groupBy)
@@ -51,16 +52,16 @@ data Weight p =
     }
   deriving (Eq, Show)
 
-makeLenses ''Weight
-
-data AStar p =
+newtype Min =
+  Min Int
+  deriving (Show, Read, Eq, Ord)
+  
+data AStar s p =
   AStar
-    { _openList   :: Q.HashPSQ p Int (Weight p)
-    , _closedList :: H.HashMap p p
+    { _heap :: HeapD.Heap s Min  
+    , _closedList :: HM.MHashMap s p p
+--    , _openList   :: Q.HashPSQ p Int (Weight p)
     }
-  deriving (Eq, Show)
-
-makeLenses ''AStar
 
 data BreadFirst p =
   BreadFirst
@@ -69,8 +70,6 @@ data BreadFirst p =
     }
   deriving (Eq, Show)
 
-makeLenses ''BreadFirst
-
 data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Ord p) =>
     { neighbors :: p -> m [p]
@@ -78,10 +77,12 @@ data AStarSolver m p where
     , heuristic :: p -> p -> m Int
     } -> AStarSolver m p
 
-newtype Min =
-  Min Int
-  deriving (Show, Read, Eq, Ord)
-  
+
+makeLenses ''Weight
+makeLenses ''AStar
+makeLenses ''BreadFirst
+
+
 instance Semigroup Min where
   (<>) (Min a) (Min b) = Min (min a b)
 
@@ -90,6 +91,7 @@ instance Monoid Min where
 
 newtype MyElement = MyElement { getMyElement :: Int }
   deriving (Show,Read,Eq,Ord)
+
 
 -- λ> :rr heapMatchesList $ (\(f,s) -> (Min f, MyElement s)) <$> [(1,4),(2,3),(3,2),(4,1)]
 heapMatchesList :: [(Min,MyElement)] -> Bool
@@ -120,65 +122,65 @@ heapMatchesList xs' = runIdentity $ do
 
 aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> (p -> Int) -> (Int -> p) -> m [p]
 aStarFind solver src dst stopCond p2i i2p = do
-  let astar = aStarInit src
   let path = []
   path <- runST $ do
-    heap <- HeapD.new (maxBound :: Int)
-    HeapD.unsafePush (mempty :: Min) (p2i src) heap -- f_score for src
-    ast <- aStarInitST src
+    ast <- aStarInitST src p2i
     undefined
   return path
   where
 
-aStarInitST :: (PrimMonad m, Ord p) => p -> m (AStar p)
-aStarInitST = undefined 
---    p2f (Point i j) = i * n + j
+aStarInitST :: (PrimMonad m, Ord p) => p -> (p -> Int) -> m (AStar (PrimState m) p)
+aStarInitST src p2i = do 
+  heap <- HeapD.new 1000000 
+  HeapD.unsafePush (mempty :: Min) (p2i src) heap
+  closedList <- HM.newSized 1000000
+  return $ AStar { _heap = heap, _closedList = closedList }
 --    f2p k = Point (k `div` n) (k `mod` n)
 
 aStarFindST :: (PrimMonad m, Hashable p, Ord p) => m [p]
 aStarFindST = undefined
 
-aStarInit :: (Hashable p, Ord p) => p -> AStar p
-aStarInit src =
-  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
-      openList = Q.singleton src (weight ^. fScore) weight
-      closedList = H.empty :: H.HashMap p p
-   in AStar openList closedList
+--aStarInit :: (Hashable p, Ord p) => p -> AStar p
+--aStarInit src =
+--  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
+--      openList = Q.singleton src (weight ^. fScore) weight
+--      closedList = H.empty :: H.HashMap p p
+--   in AStar openList closedList
 
-aStarFindRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> (p -> m Bool) -> StateT (AStar p) m [p]
-aStarFindRec solver dst stopCond = do
-  openList0 <- use openList
-  closedList0 <- use closedList
-  case Q.findMin openList0 of
-    Nothing -> return []
-    Just (p0, _, weight0) -> do
-      finished <- lift $ stopCond p0
-      if finished
-        then do
-          closedList %= H.insert p0 (weight0 ^. parent)
-          gets $ backtrace p0 <$> flip (^.) closedList
-        else do
-          openList %= Q.delete p0
-          closedList %= H.insert p0 (weight0 ^. parent)
-          neighbors <- lift $ neighbors solver p0
-          let neighPoints = filter (not . (`H.member` closedList0)) neighbors
-          -- `k` is the current node, `fs` is f-score
-          forM_ neighPoints $ \np -> do
-            dist <- lift $ distance solver np p0
-            let g1 = weight0 ^. gScore + dist
-            hue <- lift $ heuristic solver np dst
-            let f1 = g1 + hue
-            let p1 = p0
-            let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
-            case Q.lookup np openList0 of
-              Just (_, w)
-                  -- the neighbour can be reached with smaller cost - change priority
-                  -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
-               -> when (g1 < (w ^. gScore)) $ openList .= Q.insert np f1 w1 openList0
-              Nothing
-                -- the neighbour is new
-               -> openList .= Q.insert np f1 w1 openList0
-          aStarFindRec solver dst stopCond
+--aStarFindRec :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> (p -> m Bool) -> StateT (AStar p) m [p]
+--aStarFindRec solver dst stopCond = do
+--  openList0 <- use openList
+--  closedList0 <- use closedList
+--  case Q.findMin openList0 of
+--    Nothing -> return []
+--    Just (p0, _, weight0) -> do
+--      finished <- lift $ stopCond p0
+--      if finished
+--        then do
+--          closedList %= H.insert p0 (weight0 ^. parent)
+--          gets $ backtrace p0 <$> flip (^.) closedList
+--        else do
+--          openList %= Q.delete p0
+--          closedList %= H.insert p0 (weight0 ^. parent)
+--          neighbors <- lift $ neighbors solver p0
+--          let neighPoints = filter (not . (`H.member` closedList0)) neighbors
+--          -- `k` is the current node, `fs` is f-score
+--          forM_ neighPoints $ \np -> do
+--            dist <- lift $ distance solver np p0
+--            let g1 = weight0 ^. gScore + dist
+--            hue <- lift $ heuristic solver np dst
+--            let f1 = g1 + hue
+--            let p1 = p0
+--            let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
+--            case Q.lookup np openList0 of
+--              Just (_, w)
+--                  -- the neighbour can be reached with smaller cost - change priority
+--                  -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
+--               -> when (g1 < (w ^. gScore)) $ openList .= Q.insert np f1 w1 openList0
+--              Nothing
+--                -- the neighbour is new
+--               -> openList .= Q.insert np f1 w1 openList0
+--          aStarFindRec solver dst stopCond
 
 backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
 backtrace dst closedList = backtraceRec dst [dst]

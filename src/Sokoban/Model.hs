@@ -19,7 +19,7 @@ import qualified Prelude as P
 import Control.Arrow              (second)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
-import Control.Lens.TH            (makeLenses, makePrisms, mkLabels)
+import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.ST           (runST)
 import Control.Monad.State        (MonadState, evalState, execState, get, gets, runState)
@@ -28,7 +28,7 @@ import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, _PD, PPDD, pointFst, pointSnd, dirFst, dirSnd)
+                                   levels, movePoint, opposite, _PD, PPDD, pointFst, pointSnd, dirFst, dirSnd, w8FromDirection, w8ToDirection)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Text.InterpolatedString.QM (qm)
 
@@ -108,8 +108,12 @@ data FlatLevelState =
     }
   deriving (Eq, Show)
 
-$(mkLabels [''Diff, ''LevelState, ''ViewState, ''Stats, ''FlatLevelState, ''GameState])
-
+makeLenses ''Diff
+makeLenses ''LevelState
+makeLenses ''ViewState
+makeLenses ''Stats
+makeLenses ''FlatLevelState
+makeLenses ''GameState
 makePrisms ''UndoItem
 
 data Action
@@ -322,8 +326,11 @@ moveWorker d storeUndo = do
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
   src <- use (levelState . worker)
+  n <- use (levelState . width)
   let solver = buildMoveSolver []
-  dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst))
+      p2i (Point i j) = i * n + j
+      i2p k = Point (k `div` n) (k `mod` n)
+  dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst)) p2i i2p
   diffs' <- sequenceA <$> mapM doMove dirs
   case diffs' of
     Nothing -> return ()
@@ -402,12 +409,18 @@ moveBoxesByWorker src dst = do
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       srcs <- findBoxDirections s
+      n <- use (levelState . width)
       paths <-
         forM srcs $ \src -> do
           let dst = PD t D []
           let pushSolver = buildPushSolver -- :: AStarSolver m PD
           let stopCond (PD p _ _) = return $ p == t
-          path <- aStarFind pushSolver src dst stopCond
+          let p2i (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
+          let i2p :: Int -> PD
+              i2p k = let kdir = k `mod` 4
+                          k4 = k `div` 4
+                      in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+          path <- aStarFind pushSolver src dst stopCond p2i i2p
           return $ pushPathToDirections path
       let nePaths = filter (not . null) paths
       let selected =
@@ -438,12 +451,15 @@ eraseBoxes boxez gs =
 
 findBoxDirections :: MonadState GameState m => Point -> m [PD]
 findBoxDirections box = do
+  n <- use (levelState . width)
+  let p2i (Point i j) = i * n + j
+  let i2p k = Point (k `div` n) (k `mod` n)
   let moveSolver = buildMoveSolver [box]
   let isAccessible p = isEmptyOrGoal <$> getCell p
   let tryBuildPath src dst = do
         accessible <- isAccessible dst
         if accessible
-          then aStarFind moveSolver src dst (return . (== dst))
+          then aStarFind moveSolver src dst (return . (== dst)) p2i i2p
           else return []
   w <- use (levelState . worker)
   paths <- mapM (\d -> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
@@ -467,12 +483,15 @@ buildMoveSolver walls = AStarSolver {neighbors = neighbors, distance = distance,
 buildPushSolver :: MonadState GameState m => AStarSolver m PD
 buildPushSolver = do
   let neighbors (PD p0 d0 _ds0) = do
+        n <- use (levelState . width)
+        let p2i (Point i j) = i * n + j
+        let i2p k = Point (k `div` n) (k `mod` n)
         let moveSolver = buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
         let tryBuildPath src dst = do
               accessible <- isAccessible dst
               if accessible
-                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
+                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst)) p2i i2p
                 else return []
           -- cont is the "continue push in the direction d0" neighbor
           -- src is the position of the worker for the push

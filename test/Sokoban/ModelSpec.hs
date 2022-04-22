@@ -12,7 +12,7 @@ import Sokoban.Console        (interpretClick, render)
 import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal, levels,
                                movePoint, toCell)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initialLevelState, levelState,
-                               viewState, worker, pathToDirections)
+                               viewState, worker, pathToDirections, width)
 import Sokoban.Resources      (yoshiroAutoCollection)
 import Sokoban.Solver         (AStarSolver(..), aStarFind)
 
@@ -98,8 +98,12 @@ spec = do
 
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
-    aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))
+    
+    aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst)) p2i i2p
     solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+    n = gs ^. levelState . width
+    p2i (Point i j) = i * n + j
+    i2p k = Point (k `div` n) (k `mod` n)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
     distance np p0 = return $ fromEnum (np /= p0)
     neighbors p0 =
