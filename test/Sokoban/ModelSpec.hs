@@ -99,8 +99,8 @@ spec = do
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     
-    aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst)) p2i i2p
-    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+    aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))
+    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
     n = gs ^. levelState . width
     p2i (Point i j) = i * n + j
     i2p k = Point (k `div` n) (k `mod` n)

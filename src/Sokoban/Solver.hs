@@ -55,10 +55,10 @@ data Weight p =
 newtype Min =
   Min Int
   deriving (Show, Read, Eq, Ord)
-  
+
 data AStar s p =
   AStar
-    { _heap :: HeapD.Heap s Min  
+    { _heap :: HeapD.Heap s Min
     , _closedList :: HM.MHashMap s p p
 --    , _openList   :: Q.HashPSQ p Int (Weight p)
     }
@@ -75,6 +75,8 @@ data AStarSolver m p where
     { neighbors :: p -> m [p]
     , distance  :: p -> p -> m Int -- for adjacent points only
     , heuristic :: p -> p -> m Int
+    , p2i       :: p -> Int
+    , i2p       :: Int -> p
     } -> AStarSolver m p
 
 
@@ -120,18 +122,18 @@ heapMatchesList xs' = runIdentity $ do
         $ groupBy (on (==) fst) heapRes
   return $ trace [qm| xs={xs}\nheapRes={heapRes}|] $ heapResSet == listRes
 
-aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> (p -> Int) -> (Int -> p) -> m [p]
-aStarFind solver src dst stopCond p2i i2p = do
+aStarFind :: (Monad m, Hashable p, Ord p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
+aStarFind solver src dst stopCond = do
   let path = []
   path <- runST $ do
-    ast <- aStarInitST src p2i
+    astar <- aStarInitST src (p2i solver)
     undefined
   return path
   where
 
 aStarInitST :: (PrimMonad m, Ord p) => p -> (p -> Int) -> m (AStar (PrimState m) p)
-aStarInitST src p2i = do 
-  heap <- HeapD.new 1000000 
+aStarInitST src p2i = do
+  heap <- HeapD.new 1000000
   HeapD.unsafePush (mempty :: Min) (p2i src) heap
   closedList <- HM.newSized 1000000
   return $ AStar { _heap = heap, _closedList = closedList }

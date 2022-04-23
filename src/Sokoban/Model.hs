@@ -326,11 +326,8 @@ moveWorker d storeUndo = do
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
   src <- use (levelState . worker)
-  n <- use (levelState . width)
-  let solver = buildMoveSolver []
-      p2i (Point i j) = i * n + j
-      i2p k = Point (k `div` n) (k `mod` n)
-  dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst)) p2i i2p
+  solver <- buildMoveSolver []
+  dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst))
   diffs' <- sequenceA <$> mapM doMove dirs
   case diffs' of
     Nothing -> return ()
@@ -353,7 +350,7 @@ computeWorkerReachability = do
   where
     findWorkerArea :: MonadState GameState m => Point -> m (S.HashSet Point)
     findWorkerArea s = do
-      let moveSolver = buildMoveSolver []
+      moveSolver <- buildMoveSolver []
       area <- breadFirstFind moveSolver s
       return $ S.fromList area
 
@@ -371,7 +368,7 @@ computeBoxReachability box = do
       sources <- findBoxDirections s
       areas <-
         forM sources $ \src -> do
-          let pushSolver = buildPushSolver -- :: AStarSolver m PD
+          pushSolver <- buildPushSolver -- :: AStarSolver m PD
           breadFirstFind pushSolver src
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
@@ -409,18 +406,12 @@ moveBoxesByWorker src dst = do
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       srcs <- findBoxDirections s
-      n <- use (levelState . width)
       paths <-
         forM srcs $ \src -> do
           let dst = PD t D []
-          let pushSolver = buildPushSolver -- :: AStarSolver m PD
           let stopCond (PD p _ _) = return $ p == t
-          let p2i (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
-          let i2p :: Int -> PD
-              i2p k = let kdir = k `mod` 4
-                          k4 = k `div` 4
-                      in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
-          path <- aStarFind pushSolver src dst stopCond p2i i2p
+          pushSolver <- buildPushSolver -- :: AStarSolver m PD
+          path <- aStarFind pushSolver src dst stopCond
           return $ pushPathToDirections path
       let nePaths = filter (not . null) paths
       let selected =
@@ -451,15 +442,12 @@ eraseBoxes boxez gs =
 
 findBoxDirections :: MonadState GameState m => Point -> m [PD]
 findBoxDirections box = do
-  n <- use (levelState . width)
-  let p2i (Point i j) = i * n + j
-  let i2p k = Point (k `div` n) (k `mod` n)
-  let moveSolver = buildMoveSolver [box]
+  moveSolver <- buildMoveSolver [box]
   let isAccessible p = isEmptyOrGoal <$> getCell p
   let tryBuildPath src dst = do
         accessible <- isAccessible dst
         if accessible
-          then aStarFind moveSolver src dst (return . (== dst)) p2i i2p
+          then aStarFind moveSolver src dst (return . (== dst))
           else return []
   w <- use (levelState . worker)
   paths <- mapM (\d -> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
@@ -467,8 +455,12 @@ findBoxDirections box = do
   let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
   return dirPoints
 
-buildMoveSolver :: MonadState GameState m => [Point] -> AStarSolver m Point
-buildMoveSolver walls = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+buildMoveSolver :: MonadState GameState m => [Point] -> m (AStarSolver m Point)
+buildMoveSolver walls = do 
+  n <- use (levelState . width)
+  let p2i (Point i j) = i * n + j
+  let i2p k = Point (k `div` n) (k `mod` n)
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
   where
     neighbors p0 = do
       let isAccessible p =
@@ -480,18 +472,21 @@ buildMoveSolver walls = AStarSolver {neighbors = neighbors, distance = distance,
     distance np p0 = return $ fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
 
-buildPushSolver :: MonadState GameState m => AStarSolver m PD
+buildPushSolver :: MonadState GameState m => m (AStarSolver m PD)
 buildPushSolver = do
+  n <- use (levelState . width)
+  let p2i (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
+  let i2p :: Int -> PD
+      i2p k = let kdir = k `mod` 4
+                  k4 = k `div` 4
+              in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   let neighbors (PD p0 d0 _ds0) = do
-        n <- use (levelState . width)
-        let p2i (Point i j) = i * n + j
-        let i2p k = Point (k `div` n) (k `mod` n)
-        let moveSolver = buildMoveSolver [p0]
+        moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
         let tryBuildPath src dst = do
               accessible <- isAccessible dst
               if accessible
-                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst)) p2i i2p
+                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
                 else return []
           -- cont is the "continue push in the direction d0" neighbor
           -- src is the position of the worker for the push
@@ -503,12 +498,14 @@ buildPushSolver = do
         (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
   let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) = return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
   let distance np p0 = return $ fromEnum (np /= p0)
-  AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
 
-buildPush2Solver :: forall m . MonadState GameState m => AStarSolver m PPDD
+buildPush2Solver :: forall m . MonadState GameState m => m (AStarSolver m PPDD)
 buildPush2Solver = do
+  let p2i _ppdd = undefined
+  let i2p _k = undefined
   let neighbors (p0 :: PPDD) = do
-        let moveSolver = buildMoveSolver [p0 ^. pointFst, p0 ^. pointSnd] :: AStarSolver m Point 
+        _moveSolver <- buildMoveSolver [p0 ^. pointFst, p0 ^. pointSnd] :: m (AStarSolver m Point) 
         let isAccessible :: PPDD -> m Bool
             isAccessible p = do
               c1 <- getCell (p ^. pointFst)
@@ -537,7 +534,7 @@ buildPush2Solver = do
         undefined
   let heuristic p1 p2 = undefined -- return $ abs (i1 - i2) + abs (j1 - j2)
   let distance np p0 = undefined -- return $ fromEnum (np /= p0)
-  AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic}
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
 
 
 
