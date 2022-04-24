@@ -50,7 +50,7 @@ spec = do
     it "move to (2, 1)" $ do
       let src = gs ^. levelState . worker
       let dst = Point 2 1
-      aStarTest src dst `shouldBe` [Point 5 3, Point 5 2, Point 4 2, Point 4 1, Point 3 1, Point 2 1]
+      aStarTest src dst `shouldBe` [Point 5 3, Point 5 2, Point 4 2, Point 3 2, Point 3 1, Point 2 1]
     it "move to self" $ do
       let src = gs ^. levelState . worker
       let dst = src

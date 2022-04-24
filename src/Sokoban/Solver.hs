@@ -86,24 +86,29 @@ aStarFind solver src dst stopCond = do
   let maxCount = 1000000
   path <- runSTT $ do
     openHeap <- HMD.new maxCount :: STT s m (HMD.Heap s Min)
-    openList <- HM.new           :: STT s m (HM.MHashMap s Int (p, Int))
+    openList <- HM.new           :: STT s m (HM.MHashMap s Int (p, p, Int))
     closedList <- HM.new         :: STT s m (HM.MHashMap s p p)
     let isrc = p2i src
     HMD.unsafePush (Min 0) isrc openHeap
-    HM.insert openList isrc (src, 0)
+    HM.insert openList isrc (src, src, 0)
     HM.insert closedList src src
     -- the loop until heap becomes empty
     let aStarFindRec = do
           top' <- HMD.pop openHeap -- remove the minimum and return
+--          traceM [qm| {top'}|]
+--          flip HM.mapM_ openList $ \k v -> do
+--            traceM [qm| __ openList: {k} {v}|]
+--          flip HM.mapM_ closedList $ \k v -> do
+--            traceM [qm| __ closedList: {k} {v}|]
           case top' of
               Nothing -> return []
               Just (_fscore, ip0) -> do
-                (p0, gscore0) <- fromMaybe (error [qm|{ip0} is not found in openList|]) <$> HM.lookup openList ip0
-                parent0 <- fromMaybe (error [qm|{ip0} is not found in closedList|]) <$> HM.lookup closedList p0
+                (p0, parent0,  gscore0) <- fromMaybe (error [qm| {ip0} is not found in openList |]) <$> HM.lookup openList ip0
                 HM.insert closedList p0 parent0
                 finished <- lift $ stopCond p0
                 if finished
-                  then backtraceST closedList p0
+                  then do
+                    backtraceST closedList p0
                   else do
                     neighCandidates <- lift $ neighbors solver p0
                     let isAcc p = do
@@ -119,21 +124,20 @@ aStarFind solver src dst stopCond = do
                       let fscoreNp = Min (gscore0 + dist + hue)
                       pg' <- HM.lookup openList inp
                       case pg' of
-                        Just (parent, gscore) | gscoreNp < gscore -> do
+                        Just (p, parent, gscore) | gscoreNp < gscore -> do
                           -- the neighbour can be reached with smaller cost - change priority
                           -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
                           -- openList .= Q.insert np f1 w1 openList0
-                          HMD.push fscoreNp (p2i np) openHeap
-                          HM.insert openList (p2i np) (parent, gscoreNp)
+                          HMD.push fscoreNp (p2i p) openHeap
+                          HM.insert openList (p2i p) (p, parent, gscoreNp)
                         Nothing -> do
                           -- the neighbour is new
                           -- openList .= Q.insert np f1 w1 openList0
                           HMD.push fscoreNp inp openHeap
-                          HM.insert openList inp (p0, gscoreNp)
+                          HM.insert openList inp (np, p0, gscoreNp)
                         _ -> return ()
                     aStarFindRec
     aStarFindRec
-  traceM [qm| path = {path} |]
   return path
   where
     member :: (Monad m, Hashable k, Eq k) => HM.MHashMap s k a -> k -> STT s m Bool

@@ -496,9 +496,9 @@ buildPushSolver = do
         let src = movePoint p0 (opposite d0)
         let otherDirs = filter (/= d0) [U, D, L, R]
         paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
-        neighs <- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
-        traceM [qm|  neighs = {neighs} |]
-        return neighs 
+        (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+        -- traceM [qm|  neighs = {neighs} |]
+        -- neighs <- return neighs 
   let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) = return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
   let distance np p0 = fromEnum (np /= p0)
   return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
