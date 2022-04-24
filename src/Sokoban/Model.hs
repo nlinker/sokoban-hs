@@ -174,12 +174,14 @@ runStep action
 resetView :: MonadState GameState m => Action -> m ()
 resetView action =
   case action of
-    NextLevel -> viewState . doClearScreen .= True
-    PrevLevel -> viewState . doClearScreen .= True
+    NextLevel -> do
+      viewState . doClearScreen .= True
+      return ()
+    PrevLevel -> do
+      viewState . doClearScreen .= True
+      return ()
     SelectWorker -> return ()
-    SelectBox _ -> do
-      viewState . doSuppressRender .= True
-      return () 
+    SelectBox _ -> return ()
     Restart -> do
       viewState . message .= ""
       viewState . clicks .= []
@@ -462,7 +464,7 @@ findBoxDirections box = do
   return dirPoints
 
 buildMoveSolver :: MonadState GameState m => [Point] -> m (AStarSolver m Point)
-buildMoveSolver walls = do 
+buildMoveSolver walls = do
   n <- use (levelState . width)
   let p2int (Point i j) = i * n + j
   return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
@@ -498,7 +500,7 @@ buildPushSolver = do
         paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
         (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
         -- traceM [qm|  neighs = {neighs} |]
-        -- neighs <- return neighs 
+        -- neighs <- return neighs
   let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) = return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
   let distance np p0 = fromEnum (np /= p0)
   return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
