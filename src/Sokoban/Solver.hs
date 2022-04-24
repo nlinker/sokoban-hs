@@ -14,6 +14,7 @@
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UnboxedTuples              #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Sokoban.Solver where
 
@@ -143,13 +144,13 @@ breadFirstFind solver src = do
     let isrc = p2i src
     HMD.unsafePush (Min 0) isrc openHeap
     HM.insert openList isrc (src, src)
-    
+
     -- the loop until heap becomes empty
     let breadFirstFindRec (it :: Int) = do
           top' <- HMD.pop openHeap -- remove the minimum and return
           case top' of
               Nothing -> do
-                keys closedList -- gather keys  
+                keys closedList -- gather keys
               Just (Min dist0, ip0) -> do
                 (p0, parent0) <- fromMaybe (error [qm| {ip0} is not found in openList |]) <$> HM.lookup openList ip0
                 HM.insert closedList p0 parent0
@@ -176,7 +177,7 @@ breadFirstFind solver src = do
                       -- openList .= Q.insert np f1 w1 openList0
                       HMD.push gscoreNp inp openHeap
                       HM.insert openList inp (np, p0)
-                breadFirstFindRec (it + 1) 
+                breadFirstFindRec (it + 1)
     breadFirstFindRec 0-- call the function
   return path
   where

@@ -1,4 +1,7 @@
 {-
+~/h/sokoban-hs ❯❯❯ stack build --work-dir .stack-work-profile --profile
+~/h/sokoban-hs ❯❯❯ stack --profile --work-dir .stack-work-profile run sokoban --rts-options -p
+
 aStarFind :: MonadState GameState m => Point -> Point -> m AStarData
 aStarFind src dst = do
   let ad0 = initAStarData src
@@ -543,9 +546,6 @@ flattenLevel gs =
 unFlattenLevel :: FlatLevelState -> LevelState
 unFlattenLevel _fls = undefined
 
-~/h/sokoban-hs ❯❯❯ stack build --work-dir .stack-work-profile --profile
-~/h/sokoban-hs ❯❯❯ stack --profile --work-dir .stack-work-profile run sokoban --rts-options -p
-
 -- Add stm-containers to dependencies
 stack.yaml:
 -----------
@@ -602,5 +602,11 @@ buildPush2Solver = do
       int2p k = let kdir = k `mod` 4
                     k4 = k `div` 4
                 in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+
+  -- this is to clear artifacts after the previous message
+  msg <- use (viewState . message)
+  unless (T.null msg) $ viewState . message .= ""
+    -- viewState . doClearScreen .= True
+  viewState . message .= T.pack (show action)
 
 -}

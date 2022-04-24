@@ -20,7 +20,7 @@ import Control.Arrow       (second)
 import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=), (^.),
                             _1, _2, _3)
 import Control.Lens.TH     (makeLenses, makePrisms)
-import Control.Monad       (filterM, forM, forM_, unless, when)
+import Control.Monad       (filterM, forM, forM_, when)
 import Control.Monad.State (MonadState, evalState, execState, get, gets, runState)
 import Data.Foldable       (foldl', minimumBy)
 import Data.Ord            (comparing)
@@ -141,13 +141,7 @@ step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
 
 runStep :: MonadState GameState m => Action -> m ()
-runStep action
-  -- this is to clear artifacts after the previous message
- = do
-  msg <- use (viewState . message)
-  unless (T.null msg) $ viewState . message .= ""
-    -- viewState . doClearScreen .= True
-  viewState . message .= T.pack (show action)
+runStep action = do
   case action of
     Up                -> moveWorker (toDirection action) True
     Down              -> moveWorker (toDirection action) True
@@ -389,8 +383,8 @@ moveBoxesByWorker src dst = do
     case (src, dst) of
       ([s], [t]) -> do
         erasedGs <- gets $ eraseBoxes [s]
+        -- erase source box not to break path finding and avoid spoiling of the current gs
         let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
-        -- erase source box to not break path finding and avoid spoil the current gs
         -- viewState . message .= (dbgGs ^. viewState . message)
         -- viewState . doClearScreen .= True
         return dirs
@@ -428,7 +422,6 @@ moveBoxesByWorker src dst = do
             if null nePaths
               then []
               else minimumBy (comparing length) nePaths
-      -- levelState . message .= [qm| selected={selected}|]
       return selected
     tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
     tryMove2Boxes _ss _ts = return []
