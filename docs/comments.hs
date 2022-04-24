@@ -442,6 +442,30 @@ import Text.InterpolatedString.QM (qm)
 
 viewState . message %= (\msg -> T.replicate (T.length msg) " ")
 
+aStarInitST :: (PrimMonad m, Ord p) => p -> (p -> Int) -> m (AStar (PrimState m) p)
+aStarInitST src p2i = do
+  heap <- HMD.new 1000000
+  HMD.unsafePush (mempty :: Min) (p2i src) heap
+  closedList <- HM.newSized 1000000
+  return $ AStar { _heap = heap, _closedList = closedList }
+
+aStarInit :: (Hashable p, Ord p) => p -> AStar p
+aStarInit src =
+  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
+      openList = Q.singleton src (weight ^. fScore) weight
+      closedList = H.empty :: H.HashMap p p
+   in AStar openList closedList
+
+backtrace :: (Eq p, Hashable p) => p -> H.HashMap p p -> [p]
+backtrace dst closedList = backtraceRec dst [dst]
+  where
+    backtraceRec current acc = -- we repeatedly lookup for the parent of the current node
+      case H.lookup current closedList of
+        Nothing -> []
+        Just parent
+          | current == parent -> acc
+        Just parent -> backtraceRec parent (parent : acc)
+
 flattenLevel :: GameState -> FlatLevelState
 flattenLevel gs =
   runST $ do
@@ -489,5 +513,43 @@ package.yaml:
 -------------
 dependencies:
     - stm-containers
+
+-- HM.mapM_ (\k v -> traceM [qm|k={k} v={v}|]) closedList
+
+buildPush2Solver :: forall m . MonadState GameState m => m (AStarSolver m PPDD)
+buildPush2Solver = do
+  let p2int _ppdd = undefined
+  let int2p _k = undefined
+  let neighbors (p0 :: PPDD) = do
+        _moveSolver <- buildMoveSolver [p0 ^. pointFst, p0 ^. pointSnd] :: m (AStarSolver m Point)
+        let isAccessible :: PPDD -> m Bool
+            isAccessible p = do
+              c1 <- getCell (p ^. pointFst)
+              c2 <- getCell (p ^. pointSnd)
+              return $ isEmptyOrGoal c1 && isEmptyOrGoal c2
+--        let tryBuildPath :: MonadState GameState m => Point -> Point -> m [Point]
+--            tryBuildPath src dst = do
+--              accessible <- isAccessible dst
+--              if accessible
+--                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
+--                else return []
+          -- cont is the "continue push in the direction d0" neighbor
+          -- src is the position of the worker for the push
+          -- directed is the same box but with changed push direction
+        let p1 = p0 ^. pointFst
+        let d1 = p0 ^. dirFst
+        let p2 = p0 ^. pointSnd
+        let d2 = p0 ^. dirSnd
+--        cont1 <- filterM (\(PPDD p _ _ _ _) -> isAccessible p) [PPDD (movePoint p0 d0) d0 [d0]]
+--        cont2 <- filterM (\(PPDD p _ _ _ _) -> isAccessible p) [PPDD (movePoint p0 d0) d0 [d0]]
+--
+--        let src = movePoint p0 (opposite d0)
+--        let otherDirs = filter (/= d0) [U, D, L, R]
+--        paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
+--        (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+        undefined
+  let heuristic p1 p2 = undefined -- return $ abs (i1 - i2) + abs (j1 - j2)
+  let distance np p0 = undefined -- return $ fromEnum (np /= p0)
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2int, int2p = int2p}
 
 -}

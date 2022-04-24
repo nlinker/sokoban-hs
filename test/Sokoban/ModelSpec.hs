@@ -27,7 +27,7 @@ gs =
     { _collection = yoshiroAutoCollection
     , _index = 0
     , _levelState = fromJust $ initialLevelState $ head $ yoshiroAutoCollection ^. levels
-    , _viewState = ViewState False [] S.empty False False ""
+    , _viewState = ViewState False [] S.empty False False "" False
     }
 
 spec :: Spec
@@ -100,12 +100,12 @@ spec = do
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     
     aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))
-    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
+    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2i, int2p = i2p}
     n = gs ^. levelState . width
     p2i (Point i j) = i * n + j
     i2p k = Point (k `div` n) (k `mod` n)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
-    distance np p0 = return $ fromEnum (np /= p0)
+    distance np p0 = fromEnum (np /= p0)
     neighbors p0 =
       return $ do
         let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs

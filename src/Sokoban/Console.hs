@@ -15,24 +15,23 @@ import Prelude hiding (id)
 
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
-import Control.Lens               (use, (&), (.=), (.~), (^.), (<>=))
-import Control.Monad              (forM_, when)
-import Control.Monad.State        (MonadState, execState, runState, runStateT)
+import Control.Lens               (use, (&), (.=), (.~), (^.))
+import Control.Monad              (forM_, when, unless)
+import Control.Monad.State        (MonadState, execState, runState, evalStateT, lift)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
-                                   buildMoveSolver, cells, clicks, destinations, direction,
+import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired, cells, clicks, destinations, direction,
                                    doClearScreen, doMove, getCell, height, id, initialLevelState,
                                    isComplete, levelState, levelState, message, moveCount,
                                    pushCount, stats, step, undoIndex, undoMove, undoStack,
-                                   viewState, width, worker, _UndoItem)
+                                   viewState, width, _UndoItem, buildPushSolver, doSuppressRender)
 import Sokoban.Parser             (parseLevels, splitWith)
-import Sokoban.Resources          (dh1Collection, testCollection)
-import Sokoban.Solver             (breadFirstFind)
+import Sokoban.Resources          (testCollection)
+import Sokoban.Solver             (int2p, p2int)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
@@ -40,7 +39,6 @@ import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEc
 import Text.InterpolatedString.QM (qm, qms)
 import Text.Read                  (readMaybe)
 
-import           Data.Bool     (bool)
 import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
@@ -100,15 +98,25 @@ buildGameState args = do
       { _collection = levelCollection
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initialLevelState $ head (levelCollection ^. levels)
-      , _viewState = ViewState False [] S.empty False False "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
+      , _viewState = 
+        ViewState
+          { _doClearScreen    = False
+          , _clicks           = []
+          , _destinations     = S.empty
+          , _animateRequired  = False
+          , _animateForward   = False
+          , _message          = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
+          , _doSuppressRender = False
+          }
       }
 
 gameLoop :: GameState -> IO ()
 gameLoop gs0
   -- if we need to draw multiple
  = do
-  moveCursorToOrigin
-  render gs0
+  unless (gs0 ^. viewState . doSuppressRender) $ do
+    moveCursorToOrigin
+    render gs0
   key <- getKey
   when (key /= "\ESC") $ do
     let gs1 =
@@ -360,8 +368,8 @@ render gs = do
         BoxOnGoal -> ('▩', Red)
 
 ------------------------------------------------------------------------------------------------------------------------
-runTest :: IO ()
-runTest = do
+runTestPerf :: IO ()
+runTestPerf = do
   clearScreen
   gs0 <- buildGameState []
   let gs1 = step gs0 (A.MoveBoxes [Point 7 4] [Point 7 3])
@@ -381,3 +389,15 @@ runTest = do
 --      w <- use (levelState . worker)
 --      area <- breadFirstFind moveSolver w
 --      viewState . message .= [qm| area = {area}|]
+
+runTest :: IO ()
+runTest = do
+  gs <- buildGameState []
+  x <- flip evalStateT gs $ do
+    solver <- buildPushSolver
+    forM_ [0..439] $ \i -> do
+      let pd = int2p solver i
+      let i2 = p2int solver pd
+      lift $ putStrLn [qm| i={i}  pd={pd}  i2={i2} |]    
+    return []
+  putStrLn [qm| x={x} |]

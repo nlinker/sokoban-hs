@@ -21,24 +21,24 @@ import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), 
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
-import Control.Monad.ST           (runST)
 import Control.Monad.State        (MonadState, evalState, execState, get, gets, runState)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, _PD, PPDD, pointFst, pointSnd, dirFst, dirSnd, w8FromDirection, w8ToDirection)
+                                   levels, movePoint, opposite, _PD, w8FromDirection, w8ToDirection)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
-import Text.InterpolatedString.QM (qm)
 
 import qualified Data.HashSet                as S
 import qualified Data.Text                   as T
 import qualified Data.Vector                 as V
 import qualified Data.Vector.Unboxed         as VU
-import qualified Data.Vector.Unboxed.Mutable as VM
 import qualified Sokoban.Level               as L (cells, height, id, width)
 import qualified Text.Builder                as TB
+
+import Text.InterpolatedString.QM (qm)
+import Debug.Trace (traceM)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -72,12 +72,13 @@ data LevelState =
 
 data ViewState =
   ViewState
-    { _doClearScreen   :: !Bool
-    , _clicks          :: ![Point]
-    , _destinations    :: !(S.HashSet Point)
-    , _animateRequired :: !Bool
-    , _animateForward  :: !Bool
-    , _message         :: !T.Text
+    { _doClearScreen    :: !Bool
+    , _clicks           :: ![Point]
+    , _destinations     :: !(S.HashSet Point)
+    , _animateRequired  :: !Bool
+    , _animateForward   :: !Bool
+    , _message          :: !T.Text
+    , _doSuppressRender :: !Bool
     }
   deriving (Eq, Show)
 
@@ -141,9 +142,9 @@ runStep action
   -- this is to clear artifacts after the previous message
  = do
   msg <- use (viewState . message)
-  unless (T.null msg) $ do
+  unless (T.null msg) $
     viewState . message .= ""
-    viewState . doClearScreen .= True
+    -- viewState . doClearScreen .= True
   viewState . message .= T.pack (show action)
   case action of
     Up                -> moveWorker (toDirection action) True
@@ -173,8 +174,12 @@ runStep action
 resetView :: MonadState GameState m => Action -> m ()
 resetView action =
   case action of
+    NextLevel -> viewState . doClearScreen .= True
+    PrevLevel -> viewState . doClearScreen .= True
     SelectWorker -> return ()
-    SelectBox _ -> return ()
+    SelectBox _ -> do
+      viewState . doSuppressRender .= True
+      return () 
     Restart -> do
       viewState . message .= ""
       viewState . clicks .= []
@@ -183,7 +188,8 @@ resetView action =
     _ -> do
       viewState . clicks .= []
       viewState . destinations .= S.empty
-      viewState . doClearScreen .= True
+      viewState . doSuppressRender .= False
+      -- viewState . doClearScreen .= True
 
 dumpState :: MonadState GameState m => m ()
 dumpState = do
@@ -458,9 +464,9 @@ findBoxDirections box = do
 buildMoveSolver :: MonadState GameState m => [Point] -> m (AStarSolver m Point)
 buildMoveSolver walls = do 
   n <- use (levelState . width)
-  let p2i (Point i j) = i * n + j
-  let i2p k = Point (k `div` n) (k `mod` n)
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
+  let p2int (Point i j) = i * n + j
+  let int2p k = Point (k `div` n) (k `mod` n)
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2int, int2p = int2p}
   where
     neighbors p0 = do
       let isAccessible p =
@@ -469,17 +475,17 @@ buildMoveSolver walls = do
               else isEmptyOrGoal <$> getCell p
       let neighs = map (movePoint p0) [U, D, L, R]
       filterM isAccessible neighs
-    distance np p0 = return $ fromEnum (np /= p0)
+    distance np p0 = fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
 
 buildPushSolver :: MonadState GameState m => m (AStarSolver m PD)
 buildPushSolver = do
   n <- use (levelState . width)
-  let p2i (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
-  let i2p :: Int -> PD
-      i2p k = let kdir = k `mod` 4
-                  k4 = k `div` 4
-              in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+  let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
+  let int2p :: Int -> PD
+      int2p k = let kdir = k `mod` 4
+                    k4 = k `div` 4
+                in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   let neighbors (PD p0 d0 _ds0) = do
         moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
@@ -495,48 +501,12 @@ buildPushSolver = do
         let src = movePoint p0 (opposite d0)
         let otherDirs = filter (/= d0) [U, D, L, R]
         paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
-        (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+        neighs <- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+        traceM [qm|  neighs = {neighs} |]
+        return neighs 
   let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) = return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
-  let distance np p0 = return $ fromEnum (np /= p0)
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
-
-buildPush2Solver :: forall m . MonadState GameState m => m (AStarSolver m PPDD)
-buildPush2Solver = do
-  let p2i _ppdd = undefined
-  let i2p _k = undefined
-  let neighbors (p0 :: PPDD) = do
-        _moveSolver <- buildMoveSolver [p0 ^. pointFst, p0 ^. pointSnd] :: m (AStarSolver m Point) 
-        let isAccessible :: PPDD -> m Bool
-            isAccessible p = do
-              c1 <- getCell (p ^. pointFst)
-              c2 <- getCell (p ^. pointSnd)
-              return $ isEmptyOrGoal c1 && isEmptyOrGoal c2 
---        let tryBuildPath :: MonadState GameState m => Point -> Point -> m [Point]
---            tryBuildPath src dst = do
---              accessible <- isAccessible dst
---              if accessible
---                then pathToDirections <$> aStarFind moveSolver src dst (return . (== dst))
---                else return []
-          -- cont is the "continue push in the direction d0" neighbor
-          -- src is the position of the worker for the push
-          -- directed is the same box but with changed push direction
-        let p1 = p0 ^. pointFst
-        let d1 = p0 ^. dirFst 
-        let p2 = p0 ^. pointSnd
-        let d2 = p0 ^. dirSnd 
---        cont1 <- filterM (\(PPDD p _ _ _ _) -> isAccessible p) [PPDD (movePoint p0 d0) d0 [d0]]
---        cont2 <- filterM (\(PPDD p _ _ _ _) -> isAccessible p) [PPDD (movePoint p0 d0) d0 [d0]]
---        
---        let src = movePoint p0 (opposite d0)
---        let otherDirs = filter (/= d0) [U, D, L, R]
---        paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
---        (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
-        undefined
-  let heuristic p1 p2 = undefined -- return $ abs (i1 - i2) + abs (j1 - j2)
-  let distance np p0 = undefined -- return $ fromEnum (np /= p0)
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2i = p2i, i2p = i2p}
-
-
+  let distance np p0 = fromEnum (np /= p0)
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2int, int2p = int2p}
 
 toDirection :: Action -> Direction
 toDirection a =
