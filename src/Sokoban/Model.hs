@@ -27,7 +27,7 @@ import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, _PD, w8FromDirection, w8ToDirection)
+                                   levels, movePoint, opposite, _PD, w8FromDirection)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 
 import qualified Data.HashSet                as S
@@ -465,8 +465,7 @@ buildMoveSolver :: MonadState GameState m => [Point] -> m (AStarSolver m Point)
 buildMoveSolver walls = do 
   n <- use (levelState . width)
   let p2int (Point i j) = i * n + j
-  let int2p k = Point (k `div` n) (k `mod` n)
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2int, int2p = int2p}
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
   where
     neighbors p0 = do
       let isAccessible p =
@@ -482,10 +481,6 @@ buildPushSolver :: MonadState GameState m => m (AStarSolver m PD)
 buildPushSolver = do
   n <- use (levelState . width)
   let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
-  let int2p :: Int -> PD
-      int2p k = let kdir = k `mod` 4
-                    k4 = k `div` 4
-                in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   let neighbors (PD p0 d0 _ds0) = do
         moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
@@ -506,7 +501,7 @@ buildPushSolver = do
         return neighs 
   let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) = return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
   let distance np p0 = fromEnum (np /= p0)
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2int, int2p = int2p}
+  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
 
 toDirection :: Action -> Direction
 toDirection a =

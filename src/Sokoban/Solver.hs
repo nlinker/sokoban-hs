@@ -63,11 +63,10 @@ data BreadFirst p =
 
 data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Eq p) =>
-    { neighbors :: p -> m [p]
-    , distance  :: p -> p -> Int -- for adjacent points only
-    , heuristic :: p -> p -> m Int
-    , p2int     :: p -> Int
-    , int2p     :: Int -> p
+    { neighbors  :: p -> m [p]
+    , distance   :: p -> p -> Int -- for adjacent points only
+    , heuristic  :: p -> p -> m Int
+    , projection :: p -> Int
     } -> AStarSolver m p
 
 makeLenses ''Weight
@@ -81,18 +80,17 @@ instance (Monad m) => PrimMonad (STT s m) where
         (# t, a #) -> return (STTRet t a)
   {-# INLINE primitive #-}
 
-aStarFind :: forall m p q . (Monad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
+aStarFind :: forall m p . (Monad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
 aStarFind solver src dst stopCond = do
-  let p2i = p2int solver
-  let i2p = int2p solver
+  let p2i = projection solver
   let maxCount = 1000000
   path <- runSTT $ do
     openHeap <- HMD.new maxCount :: STT s m (HMD.Heap s Min)
-    openList <- HM.new           :: STT s m (HM.MHashMap s p (p, Int))
+    openList <- HM.new           :: STT s m (HM.MHashMap s Int (p, Int))
     closedList <- HM.new         :: STT s m (HM.MHashMap s p p)
     let isrc = p2i src
     HMD.unsafePush (Min 0) isrc openHeap
-    HM.insert openList src (src, 0)
+    HM.insert openList isrc (src, 0)
     HM.insert closedList src src
     -- the loop until heap becomes empty
     let aStarFindRec = do
@@ -100,8 +98,8 @@ aStarFind solver src dst stopCond = do
           case top' of
               Nothing -> return []
               Just (_fscore, ip0) -> do
-                let p0 = i2p ip0
-                (parent0, gscore0) <- fromMaybe (error [qm|{p0} is not found in openList|]) <$> HM.lookup openList p0
+                (p0, gscore0) <- fromMaybe (error [qm|{ip0} is not found in openList|]) <$> HM.lookup openList ip0
+                parent0 <- fromMaybe (error [qm|{ip0} is not found in closedList|]) <$> HM.lookup closedList p0
                 HM.insert closedList p0 parent0
                 finished <- lift $ stopCond p0
                 if finished
@@ -110,31 +108,32 @@ aStarFind solver src dst stopCond = do
                     neighCandidates <- lift $ neighbors solver p0
                     let isAcc p = do
                           mc <- member closedList p
-                          mo <- member openList p
+                          mo <- member openList (p2i p)
                           return $ not mc && not mo
                     neighbors <- filterM isAcc neighCandidates
                     forM_ neighbors $ \np -> do
+                      let inp = p2i np
                       hue <- lift $ heuristic solver np dst
                       let dist = distance solver np p0
                       let gscoreNp = gscore0 + dist
                       let fscoreNp = Min (gscore0 + dist + hue)
-                      pg' <- HM.lookup openList np
+                      pg' <- HM.lookup openList inp
                       case pg' of
                         Just (parent, gscore) | gscoreNp < gscore -> do
                           -- the neighbour can be reached with smaller cost - change priority
                           -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
                           -- openList .= Q.insert np f1 w1 openList0
                           HMD.push fscoreNp (p2i np) openHeap
-                          HM.insert openList np (parent, gscoreNp)
+                          HM.insert openList (p2i np) (parent, gscoreNp)
                         Nothing -> do
                           -- the neighbour is new
                           -- openList .= Q.insert np f1 w1 openList0
-                          HMD.push fscoreNp (p2i np) openHeap
-                          HM.insert openList np (p0, gscoreNp)
+                          HMD.push fscoreNp inp openHeap
+                          HM.insert openList inp (p0, gscoreNp)
                         _ -> return ()
                     aStarFindRec
     aStarFindRec
-  -- traceM [qm| path = {path} |]
+  traceM [qm| path = {path} |]
   return path
   where
     member :: (Monad m, Hashable k, Eq k) => HM.MHashMap s k a -> k -> STT s m Bool

@@ -552,4 +552,9 @@ buildPush2Solver = do
   let distance np p0 = undefined -- return $ fromEnum (np /= p0)
   return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, p2int = p2int, int2p = int2p}
 
+  let int2p :: Int -> PD
+      int2p k = let kdir = k `mod` 4
+                    k4 = k `div` 4
+                in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+
 -}

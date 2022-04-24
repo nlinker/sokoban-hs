@@ -17,7 +17,7 @@ import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, when, unless)
-import Control.Monad.State        (MonadState, execState, runState, evalStateT, lift)
+import Control.Monad.State        (MonadState, execState, runState, evalStateT)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
@@ -31,7 +31,6 @@ import Sokoban.Model              (GameState(..), ViewState(..), animateForward,
                                    viewState, width, _UndoItem, buildPushSolver, doSuppressRender)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection)
-import Sokoban.Solver             (int2p, p2int)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
@@ -98,7 +97,7 @@ buildGameState args = do
       { _collection = levelCollection
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initialLevelState $ head (levelCollection ^. levels)
-      , _viewState = 
+      , _viewState =
         ViewState
           { _doClearScreen    = False
           , _clicks           = []
@@ -394,10 +393,6 @@ runTest :: IO ()
 runTest = do
   gs <- buildGameState []
   x <- flip evalStateT gs $ do
-    solver <- buildPushSolver
-    forM_ [0..439] $ \i -> do
-      let pd = int2p solver i
-      let i2 = p2int solver pd
-      lift $ putStrLn [qm| i={i}  pd={pd}  i2={i2} |]    
+    _solver <- buildPushSolver
     return []
   putStrLn [qm| x={x} |]
