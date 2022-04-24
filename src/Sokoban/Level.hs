@@ -37,8 +37,8 @@ data Direction
   deriving (Eq, Ord, Show, Generic, Hashable)
 
 data Cell
-  = Worker {-# UNPACK #-}!Direction
-  | WorkerOnGoal {-# UNPACK #-}!Direction
+  = Worker !Direction
+  | WorkerOnGoal !Direction
   | Goal
   | Box
   | BoxOnGoal

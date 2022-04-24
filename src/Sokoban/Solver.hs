@@ -19,7 +19,6 @@ module Sokoban.Solver where
 
 import Prelude hiding (Left, Right, id)
 
-import Control.Lens.TH                 (makeLenses)
 import Control.Monad                   (filterM, forM_)
 import Control.Monad.Primitive         (PrimMonad(..), PrimState)
 import Control.Monad.ST.Trans          (runSTT)
@@ -30,17 +29,15 @@ import Data.Maybe                      (fromMaybe, isJust)
 import Text.InterpolatedString.QM      (qm)
 
 import qualified Data.HashMap.Mutable.Basic as HM
-import qualified Data.HashMap.Strict        as H
-import qualified Data.HashPSQ               as Q
 import qualified Data.Heap.Mutable.ModelD   as HMD
 
-data Weight p =
-  Weight
-    { _fScore :: Int
-    , _gScore :: Int
-    , _parent :: p
-    }
-  deriving (Eq, Show)
+instance (Monad m) => PrimMonad (STT s m) where
+  type PrimState (STT s m) = s
+  primitive f =
+    STT $ \s ->
+      case f s of
+        (# t, a #) -> return (STTRet t a)
+  {-# INLINE primitive #-}
 
 newtype Min =
   Min Int
@@ -52,13 +49,6 @@ instance Semigroup Min where
 instance Monoid Min where
   mempty = Min maxBound
 
-data BreadFirst p =
-  BreadFirst
-    { _openListB   :: Q.HashPSQ p Int (Weight p)
-    , _closedListB :: H.HashMap p ()
-    }
-  deriving (Eq, Show)
-
 data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Eq p) =>
     { neighbors  :: p -> m [p]
@@ -68,17 +58,6 @@ data AStarSolver m p where
     , nodesBound :: Int -- upper bound for the number of nodes
     , unproject  :: Int -> p
     } -> AStarSolver m p
-
-makeLenses ''Weight
-makeLenses ''BreadFirst
-
-instance (Monad m) => PrimMonad (STT s m) where
-  type PrimState (STT s m) = s
-  primitive f =
-    STT $ \s ->
-      case f s of
-        (# t, a #) -> return (STTRet t a)
-  {-# INLINE primitive #-}
 
 aStarFind :: forall m p . (Monad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
 aStarFind solver src dst stopCond = do
@@ -166,7 +145,7 @@ breadFirstFind solver src = do
     HM.insert openList isrc (src, src)
     
     -- the loop until heap becomes empty
-    let breadFirstFindRec it = do
+    let breadFirstFindRec (it :: Int) = do
           top' <- HMD.pop openHeap -- remove the minimum and return
           case top' of
               Nothing -> do

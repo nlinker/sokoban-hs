@@ -37,8 +37,6 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
-import Text.InterpolatedString.QM (qm)
-
 type MatrixCell = Vector (Vector Cell)
 
 data Diff =

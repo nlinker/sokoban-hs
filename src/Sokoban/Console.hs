@@ -16,19 +16,20 @@ import Prelude hiding (id)
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, when, unless)
-import Control.Monad.State        (MonadState, execState, runState, evalStateT)
+import Control.Monad              (forM_, unless, when)
+import Control.Monad.State        (MonadState, evalStateT, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired, cells, clicks, destinations, direction,
-                                   doClearScreen, doMove, getCell, height, id, initialLevelState,
-                                   isComplete, levelState, levelState, message, moveCount,
-                                   pushCount, stats, step, undoIndex, undoMove, undoStack,
-                                   viewState, width, _UndoItem, buildPushSolver, doSuppressRender, buildMoveSolver)
+import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
+                                   buildMoveSolver, cells, clicks, destinations, direction,
+                                   doClearScreen, doMove, doSuppressRender, getCell, height, id,
+                                   initialLevelState, isComplete, levelState, levelState, message,
+                                   moveCount, pushCount, stats, step, undoIndex, undoMove,
+                                   undoStack, viewState, width, _UndoItem)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
@@ -38,12 +39,12 @@ import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEc
 import Text.InterpolatedString.QM (qm, qms)
 import Text.Read                  (readMaybe)
 
-import qualified Data.HashSet  as S
-import qualified Data.Text     as T
-import qualified Data.Text.IO  as T
-import qualified Sokoban.Model as A (Action(..))
-import Sokoban.Solver (breadFirstFind)
-import Debug.Trace (traceM)
+import qualified Data.HashSet   as S
+import qualified Data.Text      as T
+import qualified Data.Text.IO   as T
+import           Debug.Trace    (traceM)
+import qualified Sokoban.Model  as A (Action(..))
+import           Sokoban.Solver (breadFirstFind)
 
 animationTickDelay :: Int
 animationTickDelay = 30 * 1000
@@ -100,15 +101,15 @@ buildGameState args = do
       , _index = 0
       , _levelState = fromMaybe (error "Impossible") $ initialLevelState $ head (levelCollection ^. levels)
       , _viewState =
-        ViewState
-          { _doClearScreen    = False
-          , _clicks           = []
-          , _destinations     = S.empty
-          , _animateRequired  = False
-          , _animateForward   = False
-          , _message          = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
-          , _doSuppressRender = False
-          }
+          ViewState
+            { _doClearScreen = False
+            , _clicks = []
+            , _destinations = S.empty
+            , _animateRequired = False
+            , _animateForward = False
+            , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
+            , _doSuppressRender = False
+            }
       }
 
 gameLoop :: GameState -> IO ()
@@ -142,7 +143,9 @@ gameLoop gs0
     gs2 <-
       whenWith gs1 (^. (viewState . animateRequired)) $ do
         animate gs0 gs1
-        return $ gs1 & viewState . animateRequired .~ False & viewState . animateForward .~ False
+        return $ gs1 
+          & viewState . animateRequired .~ False 
+          & viewState . animateForward .~ False
     -- clear screen if needed
     gs3 <-
       whenWith gs2 (^. (viewState . doClearScreen)) $ do
@@ -329,7 +332,7 @@ render gs = do
       putStr ""
     -- dst - is it the calculated destination for a box or worker
     -- click - is it selected by the mouse (true if selected)
-    getCellSkin ::  Cell -> Bool -> Bool -> (Char, Color)
+    getCellSkin :: Cell -> Bool -> Bool -> (Char, Color)
     getCellSkin c dest click =
       case c of
         (Worker d) ->
@@ -360,11 +363,11 @@ render gs = do
             (True, False)  -> ('·', White)
             (False, False) -> (' ', White)
         Goal ->
-            case (dest, click) of
-              (True, True)   -> ('✦', White)
-              (False, True)  -> ('✧', Red)
-              (True, False)  -> ('✦', White)
-              (False, False) -> ('✧', Red)
+          case (dest, click) of
+            (True, True)   -> ('✦', White)
+            (False, True)  -> ('✧', Red)
+            (True, False)  -> ('✦', White)
+            (False, False) -> ('✧', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
 
@@ -384,21 +387,23 @@ runTestPerf = do
   let gs9 = step gs8 (A.SelectBox (Point 7 3))
   let gs10 = step gs9 (A.MoveBoxes [Point 7 3] [Point 5 2])
   render gs10
+
 --  (_, gs) <-
 --    flip runStateT gs4 $ do return ()
 --      let moveSolver = buildMoveSolver []
 --      w <- use (levelState . worker)
 --      area <- breadFirstFind moveSolver w
 --      viewState . message .= [qm| area = {area}|]
-
 runTest :: IO ()
 runTest = do
   gs <- buildGameState []
   render gs
-  x <- flip evalStateT gs $ do
+  x <-
+    flip evalStateT gs $
 --    solver <- buildPushSolver
-    solver <- buildMoveSolver []
-    area <- breadFirstFind solver (Point 2 1)
-    traceM [qm| area={area} |]
-    return area
+     do
+      solver <- buildMoveSolver []
+      area <- breadFirstFind solver (Point 2 1)
+      traceM [qm| area={area} |]
+      return area
   putStrLn [qm| x={x} |]
