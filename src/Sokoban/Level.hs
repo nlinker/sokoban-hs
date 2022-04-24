@@ -13,7 +13,7 @@
 
 module Sokoban.Level where
 
-import Control.Lens                ((&), (+~), (^.), _1, _2)
+import Control.Lens                ((^.))
 import Control.Lens.TH             (makeLenses, makePrisms)
 import Control.Monad               (liftM)
 import Data.Hashable               (Hashable)
@@ -22,12 +22,12 @@ import Data.Vector.Unboxed.Mutable (Unbox)
 import Data.Word                   (Word8)
 import GHC.Generics                (Generic)
 
+import           Control.Arrow               ((&&&))
+import           Data.Function               (on)
 import qualified Data.Text                   as T
 import qualified Data.Vector.Generic         as G
 import qualified Data.Vector.Generic.Mutable as M
 import qualified Data.Vector.Primitive       as P
-import Data.Function (on)
-import Control.Arrow ((&&&))
 
 data Direction
   = U
@@ -109,11 +109,10 @@ instance Ord PD where
 
 instance Show PPDD where
   show pd =
-    "(" <> show (pd ^. pointFst) <> 
-    " " <> show (pd ^. pointSnd) <> 
-    " " <> show (pd ^. dirFst) <> 
-    " " <> show (pd ^. dirSnd) <>
-    " " <> show (pd ^. directions) <>
+    "(" <> show (pd ^. pointFst) <> " " <> show (pd ^. pointSnd) <> " " <> show (pd ^. dirFst) <> " " <>
+    show (pd ^. dirSnd) <>
+    " " <>
+    show (pd ^. directions) <>
     ")"
 
 instance Ord PPDD where
@@ -126,12 +125,12 @@ instance Ord PPDD where
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
 movePoint :: Point -> Direction -> Point
-movePoint p d =
+movePoint (Point i j) d =
   case d of
-    U -> p & _Point . _1 +~ -1
-    D -> p & _Point . _1 +~ 1
-    L -> p & _Point . _2 +~ -1
-    R -> p & _Point . _2 +~ 1
+    U -> Point (i - 1) j
+    D -> Point (i + 1) j
+    L -> Point i (j - 1)
+    R -> Point i (j + 1)
 
 opposite :: Direction -> Direction
 opposite d =
