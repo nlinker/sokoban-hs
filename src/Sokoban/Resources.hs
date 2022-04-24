@@ -74,15 +74,6 @@ testRaw :: T.Text
 testRaw = 
   T.pack
     [str|
-; Area test
- ######
-##  . #
-# * # #
-# .$  #
-#  #$##
-## @ #
- #####
-
 ; 1 Long
  #########
  #  ##   #
