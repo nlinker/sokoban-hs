@@ -28,7 +28,7 @@ import Sokoban.Model              (GameState(..), ViewState(..), animateForward,
                                    doClearScreen, doMove, getCell, height, id, initialLevelState,
                                    isComplete, levelState, levelState, message, moveCount,
                                    pushCount, stats, step, undoIndex, undoMove, undoStack,
-                                   viewState, width, _UndoItem, buildPushSolver, doSuppressRender)
+                                   viewState, width, _UndoItem, buildPushSolver, doSuppressRender, buildMoveSolver)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
@@ -42,6 +42,8 @@ import qualified Data.HashSet  as S
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import qualified Sokoban.Model as A (Action(..))
+import Sokoban.Solver (breadFirstFind)
+import Debug.Trace (traceM)
 
 animationTickDelay :: Int
 animationTickDelay = 30 * 1000
@@ -392,7 +394,11 @@ runTestPerf = do
 runTest :: IO ()
 runTest = do
   gs <- buildGameState []
+  render gs
   x <- flip evalStateT gs $ do
-    _solver <- buildPushSolver
-    return []
+--    solver <- buildPushSolver
+    solver <- buildMoveSolver []
+    area <- breadFirstFind solver (Point 2 1)
+    traceM [qm| area={area} |]
+    return area
   putStrLn [qm| x={x} |]

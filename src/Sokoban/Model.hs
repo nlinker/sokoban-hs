@@ -16,29 +16,28 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
-import Control.Arrow              (second)
-import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
-                                   (^.), _1, _2, _3)
-import Control.Lens.TH            (makeLenses, makePrisms)
-import Control.Monad              (filterM, forM, forM_, unless, when)
-import Control.Monad.State        (MonadState, evalState, execState, get, gets, runState)
-import Data.Foldable              (foldl', minimumBy)
-import Data.Ord                   (comparing)
-import Data.Vector                (Vector, (!))
-import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
-                                   Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, _PD, w8FromDirection)
-import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
+import Control.Arrow       (second)
+import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=), (^.),
+                            _1, _2, _3)
+import Control.Lens.TH     (makeLenses, makePrisms)
+import Control.Monad       (filterM, forM, forM_, unless, when)
+import Control.Monad.State (MonadState, evalState, execState, get, gets, runState)
+import Data.Foldable       (foldl', minimumBy)
+import Data.Ord            (comparing)
+import Data.Vector         (Vector, (!))
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, PD(..), Point(..),
+                            deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker, levels, movePoint,
+                            opposite, w8FromDirection, _PD, w8ToDirection)
+import Sokoban.Solver      (AStarSolver(..), aStarFind, breadFirstFind)
 
-import qualified Data.HashSet                as S
-import qualified Data.Text                   as T
-import qualified Data.Vector                 as V
-import qualified Data.Vector.Unboxed         as VU
-import qualified Sokoban.Level               as L (cells, height, id, width)
-import qualified Text.Builder                as TB
+import qualified Data.HashSet        as S
+import qualified Data.Text           as T
+import qualified Data.Vector         as V
+import qualified Data.Vector.Unboxed as VU
+import qualified Sokoban.Level       as L (cells, height, id, width)
+import qualified Text.Builder        as TB
 
 import Text.InterpolatedString.QM (qm)
-import Debug.Trace (traceM)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -110,11 +109,17 @@ data FlatLevelState =
   deriving (Eq, Show)
 
 makeLenses ''Diff
+
 makeLenses ''LevelState
+
 makeLenses ''ViewState
+
 makeLenses ''Stats
+
 makeLenses ''FlatLevelState
+
 makeLenses ''GameState
+
 makePrisms ''UndoItem
 
 data Action
@@ -142,8 +147,7 @@ runStep action
   -- this is to clear artifacts after the previous message
  = do
   msg <- use (viewState . message)
-  unless (T.null msg) $
-    viewState . message .= ""
+  unless (T.null msg) $ viewState . message .= ""
     -- viewState . doClearScreen .= True
   viewState . message .= T.pack (show action)
   case action of
@@ -465,9 +469,14 @@ findBoxDirections box = do
 
 buildMoveSolver :: MonadState GameState m => [Point] -> m (AStarSolver m Point)
 buildMoveSolver walls = do
+  m <- use (levelState . height)
   n <- use (levelState . width)
   let p2int (Point i j) = i * n + j
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
+  let int2p k = Point (k `div` n)  (k `mod` n)
+  let nodesBound = m * n
+  return $
+    AStarSolver
+      {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int, nodesBound = nodesBound, unproject = int2p}
   where
     neighbors p0 = do
       let isAccessible p =
@@ -481,8 +490,15 @@ buildMoveSolver walls = do
 
 buildPushSolver :: MonadState GameState m => m (AStarSolver m PD)
 buildPushSolver = do
+  m <- use (levelState . height)
   n <- use (levelState . width)
   let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
+  let int2p :: Int -> PD
+      int2p k = let kdir = k `mod` 4
+                    k4 = k `div` 4
+                in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+
+  let nodesBound = m * n * 4
   let neighbors (PD p0 d0 _ds0) = do
         moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
@@ -501,9 +517,12 @@ buildPushSolver = do
         (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
         -- traceM [qm|  neighs = {neighs} |]
         -- neighs <- return neighs
-  let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) = return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
+  let heuristic (PD (Point i1 j1) d1 _) (PD (Point i2 j2) d2 _) =
+        return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2)
   let distance np p0 = fromEnum (np /= p0)
-  return $ AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int}
+  return $
+    AStarSolver
+      {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2int, nodesBound = nodesBound, unproject = int2p}
 
 toDirection :: Action -> Direction
 toDirection a =

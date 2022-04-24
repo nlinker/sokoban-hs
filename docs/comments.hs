@@ -466,6 +466,52 @@ backtrace dst closedList = backtraceRec dst [dst]
           | current == parent -> acc
         Just parent -> backtraceRec parent (parent : acc)
 
+breadFirstInit :: (Hashable p, Ord p, Show p) => p -> BreadFirst p
+breadFirstInit src = do
+  let weight = Weight {_fScore = 0, _gScore = 0, _parent = src}
+      openList = Q.singleton src (weight ^. fScore) weight
+      closedList = H.empty :: H.HashMap p ()
+   in BreadFirst openList closedList
+
+breadFirstFindRec :: (Monad m, Hashable p, Ord p, Show p) => AStarSolver m p -> StateT (BreadFirst p) m [p]
+breadFirstFindRec solver = do
+  openList0 <- use openListB
+  closedList0 <- use closedListB
+  case Q.findMin openList0 of
+    Nothing -> do
+      return $ H.keys closedList0
+    Just (p0, _, weight0) -> do
+          openListB %= Q.delete p0
+          closedListB %= H.insert p0 ()
+          neighbors <- lift $ neighbors solver p0
+          let neighPoints = filter (not . (`H.member` closedList0)) neighbors
+          -- `k` is the current node, `fs` is f-score
+          forM_ neighPoints $ \np -> do
+            let dist = distance solver np p0
+            let g1 = weight0 ^. gScore + dist
+            let f1 = g1
+            let p1 = p0
+            let w1 = Weight {_fScore = f1, _gScore = g1, _parent = p1}
+            case Q.lookup np openList0 of
+              Just (_, w)
+                  -- the neighbour can be reached with smaller cost - change priority
+                  -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
+               -> when (g1 < (w ^. gScore)) $ openListB .= Q.insert np f1 w1 openList0
+              Nothing
+                -- the neighbour is new
+               -> openListB .= Q.insert np f1 w1 openList0
+          breadFirstFindRec solver
+
+traceM [qm| {unproject solver . snd <$> top'} // {top'}|]
+ol <- keyValues openList
+traceM [qm| __ openList: {ol}|]
+cl <- keyValues closedList
+traceM [qm| __ closedList: {cl}|]
+
+keyValues :: (Monad m, Hashable k, Eq k) => HM.MHashMap s k v -> STT s m [(k, v)]
+keyValues hm = HM.foldM (\a k v -> return $ (k, v) : a) [] hm
+
+
 flattenLevel :: GameState -> FlatLevelState
 flattenLevel gs =
   runST $ do

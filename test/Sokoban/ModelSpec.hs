@@ -12,9 +12,9 @@ import Sokoban.Console        (interpretClick, render)
 import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal, levels,
                                movePoint, toCell)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, initialLevelState, levelState,
-                               viewState, worker, pathToDirections, width)
+                               viewState, worker, pathToDirections, width, height)
 import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (AStarSolver(..), aStarFind)
+import Sokoban.Solver         (AStarSolver(..), aStarFind, breadFirstFind)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
@@ -72,6 +72,14 @@ spec = do
     it "convert empty" $ do
       let points = []
       pathToDirections points `shouldBe` []
+  describe "compute move access area" $ do
+    it "bottom left area" $ do
+      let area = S.fromList [Point 5 3,Point 5 2,Point 4 1,Point 4 2,Point 2 1,Point 3 1,Point 5 4,Point 3 2]
+      S.fromList (breadFirstTest (Point 5 3)) `shouldBe` area
+    it "convert normal" $ do
+      let area = S.fromList [Point 1 5,Point 1 4,Point 1 3,Point 1 2,Point 3 5,Point 2 3,Point 3 4,Point 2 5]
+      S.fromList (breadFirstTest (Point 1 2)) `shouldBe` area
+
   describe "unboxing Cell" $ do
     it "unbox Cell (to . from)" $ do
       let cells =
@@ -94,15 +102,15 @@ spec = do
       let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
       map (fromCell . toCell) codes `shouldBe` codes
 
---  describe "box path finding" $
-
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
-    
+    breadFirstTest src = runIdentity $ breadFirstFind solver src
     aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))
-    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2i}
+    solver = AStarSolver {neighbors = neighbors, distance = distance, heuristic = heuristic, projection = p2i, nodesBound = m * n, unproject = i2p}
+    m = gs ^. levelState . height
     n = gs ^. levelState . width
     p2i (Point i j) = i * n + j
+    i2p k = Point (k `div` n)  (k `mod` n)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
     distance np p0 = fromEnum (np /= p0)
     neighbors p0 =
