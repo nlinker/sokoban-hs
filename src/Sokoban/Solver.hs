@@ -56,8 +56,9 @@ data AStarSolver m p where
     , distance   :: p -> p -> Int -- for adjacent points only
     , heuristic  :: p -> p -> m Int
     , projection :: p -> Int
+    , injection  :: Int -> p
     , nodesBound :: Int -- upper bound for the number of nodes
-    , unproject  :: Int -> p
+    -- , cache      :: p -> p -> Maybe [p]
     } -> AStarSolver m p
 
 aStarFind :: forall m p . (Monad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
