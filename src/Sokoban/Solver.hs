@@ -58,7 +58,7 @@ data AStarSolver m p where
     , projection :: p -> Int
     , injection  :: Int -> p
     , nodesBound :: Int -- upper bound for the number of nodes
-    -- , cache      :: p -> p -> Maybe [p]
+    -- , cache      :: p -> p ->
     } -> AStarSolver m p
 
 aStarFind :: forall m p . (Monad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]

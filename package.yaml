@@ -20,6 +20,7 @@ library:
     - Sokoban.Resources
     - Sokoban.Solver
     - Sokoban.Memo
+    - Sokoban.Debug
     - Helper
   other-modules:
     - Paths_sokoban

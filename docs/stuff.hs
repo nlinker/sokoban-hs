@@ -228,30 +228,6 @@ fromCurrent (Range (Position startLine startColumn) (Position endLine endColumn)
           | line == newEndLine = column - (newEndColumn - endColumn)
           | otherwise = column
 
-
-
-Как вы избавляетесь от дублирования в
-```
-data Foo c d
-  = A
-  | B Int
-  | C c
-  | D d
-  | E c d
-  | F Int c d
-
-getMagic :: Foo c d -> Int
-getMagic :: Foo c d -> Int
-getMagic A            = 1
-getMagic (B _i)       = 2
-getMagic (C _c)       = 2
-getMagic (D _d)       = 3
-getMagic (E _c _d)    = 3
-getMagic (F _i _c _d) = 3
-```
-
-Выражения 1, 2 и 3 могут быть большие
-
 youtube-dl -a urls.txt --write-thumbnail --skip-download
 
 -}
@@ -609,35 +585,12 @@ buildPush2Solver = do
     -- viewState . doClearScreen .= True
   viewState . message .= T.pack (show action)
 
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
-memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
-memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
-memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
-memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+dumpState :: MonadState GameState m => m ()
+dumpState = do
+  undos <- use (levelState . undoStack)
+  uidx <- use (levelState . undoIndex)
+  let msg1 = "uidx: " <> show uidx <> "\n"
+  let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
+  viewState . message .= T.pack msg2
 
 -}

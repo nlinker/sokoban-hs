@@ -16,20 +16,22 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
-import Control.Arrow       (second)
-import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=), (^.),
-                            _1, _2, _3)
-import Control.Lens.TH     (makeLenses, makePrisms)
-import Control.Monad       (filterM, forM, forM_, when)
-import Control.Monad.State (MonadState, evalState, execState, get, gets, runState)
-import Data.Foldable       (foldl', minimumBy)
-import Data.Ord            (comparing)
-import Data.Vector         (Vector, (!))
-import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, PD(..), Point(..),
-                            deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker, levels, movePoint,
-                            opposite, w8FromDirection, w8ToDirection, _PD)
-import Sokoban.Solver      (AStarSolver(..), aStarFind, breadFirstFind)
-import Sokoban.Memo        (memo2)
+import Control.Arrow              (second)
+import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
+                                   (^.), _1, _2, _3)
+import Control.Lens.TH            (makeLenses, makePrisms)
+import Control.Monad              (filterM, forM, forM_, when, unless)
+import Control.Monad.State        (MonadState, evalState, execState, get, gets, runState)
+import Data.Foldable              (foldl', minimumBy)
+import Data.Ord                   (comparing)
+import Data.Vector                (Vector, (!))
+import Sokoban.Debug              (getDebugModeM, setDebugModeM)
+import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
+                                   Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
+                                   levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
+import Sokoban.Memo               (memo2)
+import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
+import Text.InterpolatedString.QM (qm)
 
 import qualified Data.HashMap.Strict as H
 import qualified Data.HashSet        as S
@@ -39,10 +41,8 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
-import Debug.Trace                (trace, traceM)
-import Text.InterpolatedString.QM (qm)
-import Control.Concurrent.MVar (MVar, newMVar)
-import System.IO.Unsafe (unsafePerformIO)
+import Control.Concurrent.MVar (newMVar)
+import System.IO.Unsafe        (unsafePerformIO)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -76,13 +76,12 @@ data LevelState =
 
 data ViewState =
   ViewState
-    { _doClearScreen    :: !Bool
-    , _clicks           :: ![Point]
-    , _destinations     :: !(S.HashSet Point)
-    , _animateRequired  :: !Bool
-    , _animateForward   :: !Bool
-    , _message          :: !T.Text
-    , _doSuppressRender :: !Bool
+    { _doClearScreen   :: !Bool
+    , _clicks          :: ![Point]
+    , _destinations    :: !(S.HashSet Point)
+    , _animateRequired :: !Bool
+    , _animateForward  :: !Bool
+    , _message         :: !T.Text
     }
   deriving (Eq, Show)
 
@@ -141,7 +140,7 @@ data Action
   | SelectWorker
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
-  | Debug
+  | ToggleDebugMode
   deriving (Eq, Show)
 
 step :: GameState -> Action -> GameState
@@ -163,26 +162,15 @@ runStep action = do
     MoveBoxes src dst -> moveBoxesByWorker src dst
     SelectWorker      -> computeWorkerReachability
     SelectBox box     -> computeBoxReachability box
-    Debug             -> dumpState
-    -- now compare the sets and check the game completion
-  ls <- use levelState
-  if ls ^. goals == ls ^. boxes
-    then do
-      levelState . isComplete .= True
-      viewState . doClearScreen .= True
-      viewState . message .= T.pack "Level complete!"
-    else levelState . isComplete .= False
+    ToggleDebugMode   -> toggleDebugMode
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()
-resetView action =
+resetView action = do
   case action of
-    NextLevel -> do
-      viewState . doClearScreen .= True
-      return ()
-    PrevLevel -> do
-      viewState . doClearScreen .= True
-      return ()
+    NextLevel -> viewState . doClearScreen .= True
+    PrevLevel -> viewState . doClearScreen .= True
+    ToggleDebugMode -> viewState . doClearScreen .= True
     SelectWorker -> return ()
     SelectBox _ -> return ()
     Restart -> do
@@ -190,22 +178,25 @@ resetView action =
       viewState . clicks .= []
       viewState . destinations .= S.empty
       viewState . doClearScreen .= True
-    Debug -> do
-      viewState . doClearScreen .= True
-      return ()
     _ -> do
       viewState . clicks .= []
       viewState . destinations .= S.empty
-      viewState . doSuppressRender .= False
-      -- viewState . doClearScreen .= True
+      complete <- use (levelState . isComplete)
+      unless complete $ viewState . message %= \msg -> T.replicate (T.length msg) " "
+  -- now compare the sets and check the game completion
+  ls <- use levelState
+  if ls ^. goals == ls ^. boxes
+    then do
+      levelState . isComplete .= True
+      viewState . doClearScreen .= True
+      viewState . message .= T.pack "Level complete!"
+    else levelState . isComplete .= False
 
-dumpState :: MonadState GameState m => m ()
-dumpState = do
-  undos <- use (levelState . undoStack)
-  uidx <- use (levelState . undoIndex)
-  let msg1 = "uidx: " <> show uidx <> "\n"
-  let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
-  viewState . message .= T.pack msg2
+toggleDebugMode :: MonadState GameState m => m ()
+toggleDebugMode = do
+  dm <- getDebugModeM
+  setDebugModeM $ not dm
+  viewState . message .= [qm| Set debug mode: {dm} -> {not dm}|]
 
 restartLevel :: MonadState GameState m => m ()
 restartLevel = do
@@ -512,7 +503,6 @@ buildPushSolver = do
   let nodesBound = m * n * 4
   let pathCache = unsafePerformIO $ newMVar H.empty
       {-# NOINLINE pathCache #-}
-
   let neighbors (PD p0 d0 _ds0) = do
         moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
@@ -521,7 +511,6 @@ buildPushSolver = do
               accessible <- isAccessible dst
               if accessible
                 then pathToDirections <$> memo2 pathCache myFind src dst
---                then pathToDirections <$> myFind src dst
                 else return []
           -- cont is the "continue push in the direction d0" neighbor
           -- src is the position of the worker for the push
@@ -546,6 +535,7 @@ buildPushSolver = do
       , nodesBound = nodesBound
       }
 
+--                then pathToDirections <$> myFind src dst
 toDirection :: Action -> Direction
 toDirection a =
   case a of

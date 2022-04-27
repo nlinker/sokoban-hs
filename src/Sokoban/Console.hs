@@ -16,7 +16,7 @@ import Prelude hiding (id)
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, unless, when)
+import Control.Monad              (forM_, when)
 import Control.Monad.State        (MonadState, evalStateT, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
@@ -26,12 +26,12 @@ import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..),
                                    isEmptyOrGoal, isWorker, levels)
 import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
                                    buildMoveSolver, cells, clicks, destinations, direction,
-                                   doClearScreen, doMove, doSuppressRender, getCell, height, id,
-                                   initialLevelState, isComplete, levelState, levelState, message,
-                                   moveCount, pushCount, stats, step, undoIndex, undoMove,
-                                   undoStack, viewState, width, _UndoItem)
+                                   doClearScreen, doMove, getCell, height, id, initialLevelState,
+                                   isComplete, levelState, levelState, message, moveCount,
+                                   pushCount, stats, step, undoIndex, undoMove, undoStack,
+                                   viewState, width, _UndoItem)
 import Sokoban.Parser             (parseLevels, splitWith)
-import Sokoban.Resources          (testCollection)
+import Sokoban.Resources          (yoshiroAutoCollection, testCollection)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
@@ -47,7 +47,7 @@ import qualified Sokoban.Model  as A (Action(..))
 import           Sokoban.Solver (breadFirstFind)
 
 animationTickDelay :: Int
-animationTickDelay = 30 * 1000
+animationTickDelay = 20 * 1000
 
 whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
@@ -108,17 +108,13 @@ buildGameState args = do
             , _animateRequired = False
             , _animateForward = False
             , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
-            , _doSuppressRender = False
             }
       }
 
 gameLoop :: GameState -> IO ()
-gameLoop gs0
-  -- if we need to draw multiple
- = do
-  unless (gs0 ^. viewState . doSuppressRender) $ do
-    moveCursorToOrigin
-    render gs0
+gameLoop gs0 = do
+  moveCursorToOrigin
+  render gs0
   key <- getKey
   when (key /= "\ESC") $ do
     let gs1 =
@@ -132,20 +128,15 @@ gameLoop gs0
             "u" -> step gs0 A.Undo
             "i" -> step gs0 A.Redo
             "r" -> step gs0 A.Restart
-            "d" -> step gs0 A.Debug
-            _
-              -- A.MoveWorker dstPoint and A.MoveBoxes srcBoxes dstBoxes
-             ->
-              case interpretClick gs0 key of
+            "d" -> step gs0 A.ToggleDebugMode
+            _ -> case interpretClick gs0 key of 
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
     -- perform animation if needed
     gs2 <-
       whenWith gs1 (^. (viewState . animateRequired)) $ do
         animate gs0 gs1
-        return $ gs1 
-          & viewState . animateRequired .~ False 
-          & viewState . animateForward .~ False
+        return $ gs1 & viewState . animateRequired .~ False & viewState . animateForward .~ False
     -- clear screen if needed
     gs3 <-
       whenWith gs2 (^. (viewState . doClearScreen)) $ do
@@ -387,12 +378,6 @@ runTestPerf = do
   let gs10 = step gs9 (A.MoveBoxes [Point 7 3] [Point 5 2])
   render gs10
 
---  (_, gs) <-
---    flip runStateT gs4 $ do return ()
---      let moveSolver = buildMoveSolver []
---      w <- use (levelState . worker)
---      area <- breadFirstFind moveSolver w
---      viewState . message .= [qm| area = {area}|]
 runTest :: IO ()
 runTest = do
   gs <- buildGameState []
