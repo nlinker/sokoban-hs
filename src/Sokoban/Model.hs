@@ -74,13 +74,16 @@ data LevelState =
     }
   deriving (Eq, Show)
 
+data AnimationMode = AnimationDo | AnimationUndo | AnimationRedo
+  deriving (Eq, Show)
+
 data ViewState =
   ViewState
     { _doClearScreen   :: !Bool
     , _clicks          :: ![Point]
     , _destinations    :: !(S.HashSet Point)
     , _animateRequired :: !Bool
-    , _animateForward  :: !Bool
+    , _animationMode   :: !AnimationMode
     , _message         :: !T.Text
     }
   deriving (Eq, Show)
@@ -291,7 +294,7 @@ redoMoveWorker = do
     forM_ diffs $ doMove . (^. direction)
     when (length diffs > 1) $ do
       viewState . animateRequired .= True
-      viewState . animateForward .= True
+      viewState . animationMode .= AnimationRedo
     levelState . undoIndex .= uidx - 1
 
 undoMoveWorker :: MonadState GameState m => m ()
@@ -303,7 +306,7 @@ undoMoveWorker = do
     forM_ (reverse diffs) undoMove
     when (length diffs > 1) $ do
       viewState . animateRequired .= True
-      viewState . animateForward .= False
+      viewState . animationMode .= AnimationUndo
     levelState . undoIndex .= uidx + 1
   -- rebuild levelState
   cells <- use (levelState . cells)
@@ -343,7 +346,7 @@ moveWorkerAlongPath dst = do
       levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
-      viewState . animateForward .= True
+      viewState . animationMode .= AnimationDo
 
 computeWorkerReachability :: MonadState GameState m => m ()
 computeWorkerReachability = do
@@ -406,7 +409,7 @@ moveBoxesByWorker src dst = do
       levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
-      viewState . animateForward .= True
+      viewState . animationMode .= AnimationDo
   where
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do

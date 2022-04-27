@@ -24,14 +24,14 @@ import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model              (GameState(..), ViewState(..), animateForward, animateRequired,
+import Sokoban.Model              (GameState(..), ViewState(..), animationMode, animateRequired,
                                    buildMoveSolver, cells, clicks, destinations, direction,
                                    doClearScreen, doMove, getCell, height, id, initialLevelState,
                                    isComplete, levelState, levelState, message, moveCount,
                                    pushCount, stats, step, undoIndex, undoMove, undoStack,
-                                   viewState, width, _UndoItem)
+                                   viewState, width, _UndoItem, AnimationMode(..))
 import Sokoban.Parser             (parseLevels, splitWith)
-import Sokoban.Resources          (yoshiroAutoCollection, testCollection)
+import Sokoban.Resources          (testCollection)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
@@ -109,7 +109,7 @@ buildGameState args = do
             , _clicks = []
             , _destinations = S.empty
             , _animateRequired = False
-            , _animateForward = False
+            , _animationMode = AnimationDo
             , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
             }
       }
@@ -132,14 +132,14 @@ gameLoop gs0 = do
             "i" -> step gs0 A.Redo
             "r" -> step gs0 A.Restart
             "d" -> step gs0 A.ToggleDebugMode
-            _ -> case interpretClick gs0 key of 
+            _ -> case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
     -- perform animation if needed
     gs2 <-
       whenWith gs1 (^. (viewState . animateRequired)) $ do
         animate gs0 gs1
-        return $ gs1 & viewState . animateRequired .~ False & viewState . animateForward .~ False
+        return $ gs1 & viewState . animateRequired .~ False & viewState . animationMode .~ AnimationDo
     -- clear screen if needed
     gs3 <-
       whenWith gs2 (^. (viewState . doClearScreen)) $ do
@@ -151,13 +151,16 @@ animate :: GameState -> GameState -> IO ()
 animate gsFrom gsTo = do
   let undos = gsTo ^. levelState . undoStack
   let uidx = gsTo ^. levelState . undoIndex
-  if gsTo ^. viewState . animateForward
-    then do
+  case gsTo ^. viewState . animationMode of
+    AnimationDo -> do
       let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
       animateDo gsFrom dirs
-    else do
+    AnimationUndo -> do
       let diffs = reverse $ (undos !! (uidx - 1)) ^. _UndoItem
       animateUndo gsFrom diffs
+    AnimationRedo -> do
+      let dirs = map (^. direction) $ (undos !! uidx) ^. _UndoItem
+      animateRedo gsFrom dirs
   where
     animateDo _ [] = return ()
     animateDo gs (dir:dirs) = do
@@ -166,6 +169,7 @@ animate gsFrom gsTo = do
       render gs2
       threadDelay animationTickDelay
       animateDo gs2 dirs
+
     animateUndo _ [] = return ()
     animateUndo gs (diff:diffs) = do
       let gs2 = execState (undoMove diff) gs
@@ -173,13 +177,14 @@ animate gsFrom gsTo = do
       render gs2
       threadDelay animationTickDelayInUndoRedo
       animateUndo gs2 diffs
+
     animateRedo _ [] = return ()
     animateRedo gs (dir:dirs) = do
       let gs2 = execState (doMove dir) gs
       moveCursorToOrigin
       render gs2
       threadDelay animationTickDelayInUndoRedo
-      animateDo gs2 dirs
+      animateRedo gs2 dirs
 
 interpretClick :: GameState -> String -> (Maybe A.Action, GameState)
 interpretClick gs key = runState runInterpretClick gs
