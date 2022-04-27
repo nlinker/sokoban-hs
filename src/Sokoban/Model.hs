@@ -16,23 +16,22 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
-import Control.Arrow           (second)
-import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
-import Control.Lens            (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
-                                (^.), _1, _2, _3)
-import Control.Lens.TH         (makeLenses, makePrisms)
-import Control.Monad           (filterM, forM, forM_, when)
-import Control.Monad.State     (MonadState, evalState, execState, get, gets, runState)
-import Data.Foldable           (foldl', minimumBy)
-import Data.Ord                (comparing)
-import Data.Vector             (Vector, (!))
-import Sokoban.Level           (Cell(..), Direction(..), Level, LevelCollection, PD(..), Point(..),
-                                deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker, levels,
-                                movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
-import Sokoban.Solver          (AStarSolver(..), aStarFind, breadFirstFind)
-import System.IO.Unsafe        (unsafePerformIO)
+import Control.Arrow       (second)
+import Control.Lens        (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=), (^.),
+                            _1, _2, _3)
+import Control.Lens.TH     (makeLenses, makePrisms)
+import Control.Monad       (filterM, forM, forM_, when)
+import Control.Monad.State (MonadState, evalState, execState, get, gets, runState)
+import Data.Foldable       (foldl', minimumBy)
+import Data.Ord            (comparing)
+import Data.Vector         (Vector, (!))
+import Sokoban.Level       (Cell(..), Direction(..), Level, LevelCollection, PD(..), Point(..),
+                            deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker, levels, movePoint,
+                            opposite, w8FromDirection, w8ToDirection, _PD)
+import Sokoban.Solver      (AStarSolver(..), aStarFind, breadFirstFind)
+import Sokoban.Memo        (memo2)
 
-import qualified Data.HashMap.Strict as M
+import qualified Data.HashMap.Strict as H
 import qualified Data.HashSet        as S
 import qualified Data.Text           as T
 import qualified Data.Vector         as V
@@ -40,9 +39,10 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
-import Data.Hashable              (Hashable)
-import Debug.Trace                (traceM)
+import Debug.Trace                (trace, traceM)
 import Text.InterpolatedString.QM (qm)
+import Control.Concurrent.MVar (MVar, newMVar)
+import System.IO.Unsafe (unsafePerformIO)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -495,27 +495,33 @@ buildMoveSolver walls = do
     distance np p0 = fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
 
-buildPushSolver :: MonadState GameState m => m (AStarSolver m PD)
+-- memoMoveSolver p0 = memo buildMoveSolver [p0]
+buildPushSolver ::
+     forall m. MonadState GameState m
+  => m (AStarSolver m PD)
 buildPushSolver = do
   m <- use (levelState . height)
   n <- use (levelState . width)
   let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
-  let int2p :: Int -> PD
-      int2p k =
+  let int2p k =
         let kdir = k `mod` 4
             k4 = k `div` 4
          in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   -- let cache = M.empty :: M.HashMap Point (AStarSolver m Point)
+  -- trace [qm| memoMoveSolver {p0}|] $
   let nodesBound = m * n * 4
+  let pathCache = unsafePerformIO $ newMVar H.empty
+      {-# NOINLINE pathCache #-}
+
   let neighbors (PD p0 d0 _ds0) = do
-        let buildMS p0 = buildMoveSolver [p0]
-        moveSolver <- memo buildMS p0
+        moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
-        let myFind (src, dst) = aStarFind moveSolver src dst (return . (== dst))
+        let myFind src dst = aStarFind moveSolver src dst (return . (== dst))
         let tryBuildPath src dst = do
               accessible <- isAccessible dst
               if accessible
-                then pathToDirections <$> memo myFind (src, dst)
+                then pathToDirections <$> memo2 pathCache myFind src dst
+--                then pathToDirections <$> myFind src dst
                 else return []
           -- cont is the "continue push in the direction d0" neighbor
           -- src is the position of the worker for the push
@@ -704,31 +710,3 @@ pathToDirections ps = reverse $ convert ps []
       case deriveDir p1 p2 of
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
-
--- | Memoize the given function by allocating a memo table,
--- and then updating the memo table on each function call.
-memoIO ::
-     (Hashable a, Eq a, Show a)
-  => (a -> b) -- ^Function to memoize
-  -> IO (a -> IO b)
-memoIO f = do
-  v <- newMVar M.empty
-  let f' x = do
-        m <- readMVar v
-        case M.lookup x m of
-          Nothing -> do
-            traceM [qm| memo {x}|]
-            let r = f x
-            modifyMVar_ v (return . M.insert x r)
-            return r
-          Just r -> return r
-  return f'
-
--- | The pure version of 'memoIO'.
-memo ::
-     (Hashable a, Eq a, Show a)
-  => (a -> b) -- ^Function to memoize
-  -> (a -> b)
-memo f =
-  let f' = unsafePerformIO (memoIO f)
-   in unsafePerformIO . f'

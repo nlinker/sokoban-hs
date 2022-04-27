@@ -609,4 +609,35 @@ buildPush2Solver = do
     -- viewState . doClearScreen .= True
   viewState . message .= T.pack (show action)
 
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 4  -  memo [Point 7 4], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 5  -  memo [Point 7 5], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 3  -  memo [Point 7 3], 0
+memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+memoMoveSolver Point 7 2  -  memo [Point 7 2], 0
+
 -}

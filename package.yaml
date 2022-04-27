@@ -19,6 +19,7 @@ library:
     - Sokoban.Parser
     - Sokoban.Resources
     - Sokoban.Solver
+    - Sokoban.Memo
     - Helper
   other-modules:
     - Paths_sokoban

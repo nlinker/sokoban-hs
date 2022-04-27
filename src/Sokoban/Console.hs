@@ -193,8 +193,7 @@ interpretClick gs key = runState runInterpretClick gs
                Nothing -> return Nothing
                Just (_, True) -> return Nothing
                Just (click, False) -> do
-                 let gather clks -- avoid duplications
-                      =
+                 let gather clks =
                        if click `elem` clks
                          then []
                          else click : clks
