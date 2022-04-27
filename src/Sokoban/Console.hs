@@ -49,6 +49,9 @@ import           Sokoban.Solver (breadFirstFind)
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
 
+animationTickDelayInUndoRedo :: Int
+animationTickDelayInUndoRedo = 100
+
 whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
   if p a
@@ -168,8 +171,15 @@ animate gsFrom gsTo = do
       let gs2 = execState (undoMove diff) gs
       moveCursorToOrigin
       render gs2
-      threadDelay animationTickDelay
+      threadDelay animationTickDelayInUndoRedo
       animateUndo gs2 diffs
+    animateRedo _ [] = return ()
+    animateRedo gs (dir:dirs) = do
+      let gs2 = execState (doMove dir) gs
+      moveCursorToOrigin
+      render gs2
+      threadDelay animationTickDelayInUndoRedo
+      animateDo gs2 dirs
 
 interpretClick :: GameState -> String -> (Maybe A.Action, GameState)
 interpretClick gs key = runState runInterpretClick gs

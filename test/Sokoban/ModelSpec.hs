@@ -113,6 +113,8 @@ spec = do
         , projection = p2i
         , injection = i2p
         , nodesBound = m * n
+        , cacheLookup = \s d -> return Nothing
+        , cacheUpdate = \s d p -> return ()
         }
     m = gs ^. levelState . height
     n = gs ^. levelState . width

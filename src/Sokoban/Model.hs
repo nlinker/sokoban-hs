@@ -21,7 +21,7 @@ import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), 
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, when, unless)
-import Control.Monad.State        (MonadState, evalState, execState, get, gets, runState)
+import Control.Monad.State.Strict (MonadState, evalState, execState, get, gets, runState)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
@@ -474,6 +474,8 @@ buildMoveSolver walls = do
       , projection = p2int
       , injection = int2p
       , nodesBound = nodesBound
+      , cacheLookup = \_ _ -> return Nothing
+      , cacheUpdate = \_ _ _ -> return ()
       }
   where
     neighbors p0 = do
@@ -485,6 +487,7 @@ buildMoveSolver walls = do
       filterM isAccessible neighs
     distance np p0 = fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
+
 
 -- memoMoveSolver p0 = memo buildMoveSolver [p0]
 buildPushSolver ::
@@ -533,6 +536,8 @@ buildPushSolver = do
       , projection = p2int
       , injection = int2p
       , nodesBound = nodesBound
+      , cacheLookup = \_ _ -> return Nothing
+      , cacheUpdate = \_ _ _ -> return ()
       }
 
 --                then pathToDirections <$> myFind src dst
