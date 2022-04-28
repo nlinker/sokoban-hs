@@ -30,6 +30,7 @@ import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollecti
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
                                    levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
+import Sokoban.Memo               (memo)
 import Text.InterpolatedString.QM (qm)
 
 import qualified Data.HashMap.Strict as H
@@ -507,14 +508,16 @@ buildMoveSolver walls = do
         Nothing -> do
           path <- algorithm
           return $ unsafePerformIO $ do
-            dm <- getDebugModeM
-            when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path} // {walls} |]
+--            dm <- getDebugModeM
+--            hm <- readMVar pathCache
+--            when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path}: {walls} size={H.size hm} |]
             modifyMVar pathCache (\hm -> return (H.insert (src, dst) path hm, path))
 
 -- memoMoveSolver p0 = memo buildMoveSolver [p0]
 buildPushSolver ::
      forall m. MonadState GameState m
   => m (AStarSolver m PD)
+{-# NOINLINE buildPushSolver #-}
 buildPushSolver = do
   m <- use (levelState . height)
   n <- use (levelState . width)
@@ -523,11 +526,42 @@ buildPushSolver = do
         let kdir = k `mod` 4
             k4 = k `div` 4
          in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+  let nodesBound = m * n * 4
   -- let cache = M.empty :: M.HashMap Point (AStarSolver m Point)
   -- trace [qm| memoMoveSolver {p0}|] $
-  let nodesBound = m * n * 4
-  let neighbors (PD p0 d0 _ds0) = do
-        moveSolver <- buildMoveSolver [p0]
+  return $
+    AStarSolver
+      { neighbors = neighbors
+      , distance = distance
+      , heuristic = heuristic
+      , projection = p2int
+      , injection = int2p
+      , nodesBound = nodesBound
+      , withCache = \_ _ alg -> alg
+      }
+  where
+    moveSolverCache :: MVar (H.HashMap Point (AStarSolver m Point))
+    moveSolverCache = unsafePerformIO $ newMVar H.empty
+    {-# NOINLINE moveSolverCache #-}
+
+    withCache p builder = do
+      let path' =
+            unsafePerformIO $ do
+              hm <- readMVar moveSolverCache
+              return $ H.lookup p hm
+      case path' of
+        Just path -> return path
+        Nothing -> do
+          solver <- builder
+          return $ unsafePerformIO $ do
+            hm <- readMVar moveSolverCache
+            dm <- getDebugModeM
+--            when dm $ traceM [qm| withCache moveSolverCache {p}: size={H.size hm} |]
+            modifyMVar moveSolverCache (\hm -> return (H.insert p solver hm, solver))
+    
+    neighbors (PD p0 d0 _ds0) = do
+        
+        moveSolver <- withCache p0 (buildMoveSolver [p0])
         let isAccessible p = isEmptyOrGoal <$> getCell p
         let myFind src dst = aStarFind moveSolver src dst (return . (== dst))
         let tryBuildPath src dst = do
@@ -543,25 +577,10 @@ buildPushSolver = do
         let otherDirs = filter (/= d0) [U, D, L, R]
         paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
         (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
-        -- traceM [qm|  neighs = {neighs} |]
-        -- neighs <- return neighs
-  let heuristic (PD (Point i1 j1) d1 ds1) (PD (Point i2 j2) d2 _ds2) =
+    heuristic (PD (Point i1 j1) d1 ds1) (PD (Point i2 j2) d2 _ds2) =
         return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2) + length ds1
-  let distance np p0 = fromEnum (np /= p0)
-  return $
-    AStarSolver
-      { neighbors = neighbors
-      , distance = distance
-      , heuristic = heuristic
-      , projection = p2int
-      , injection = int2p
-      , nodesBound = nodesBound
-      , withCache = \_ _ alg -> alg
-      }
-
---  let pathCache = unsafePerformIO $ newMVar H.empty
---      {-# NOINLINE pathCache #-}
---                then pathToDirections <$> myFind src dst
+    distance np p0 = fromEnum (np /= p0)
+    
 toDirection :: Action -> Direction
 toDirection a =
   case a of

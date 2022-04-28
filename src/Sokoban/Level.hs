@@ -76,7 +76,7 @@ instance Ord Point where
   compare (Point i1 j1) (Point i2 j2) = compare (i1, j1) (i2, j2)
 
 instance Show Point where
-  show (Point i j) = show i <> "_" <> show j
+  show (Point i j) = show i <> "∙" <> show j
 
 -- directed point, we can use this for boxes
 data PD =
