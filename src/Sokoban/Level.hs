@@ -70,10 +70,13 @@ data LevelCollection =
 
 data Point =
   Point Int Int
-  deriving (Eq, Show, Generic, Hashable)
+  deriving (Eq, Generic, Hashable)
 
 instance Ord Point where
   compare (Point i1 j1) (Point i2 j2) = compare (i1, j1) (i2, j2)
+
+instance Show Point where
+  show (Point i j) = show i <> "_" <> show j
 
 -- directed point, we can use this for boxes
 data PD =

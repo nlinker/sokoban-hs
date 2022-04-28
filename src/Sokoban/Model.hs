@@ -20,7 +20,7 @@ import Control.Arrow              (second)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
-import Control.Monad              (filterM, forM, forM_, when, unless)
+import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.State.Strict (MonadState, evalState, execState, get, gets, runState)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
@@ -29,7 +29,6 @@ import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
                                    levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
-import Sokoban.Memo               (memo2)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Text.InterpolatedString.QM (qm)
 
@@ -41,7 +40,8 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
-import Control.Concurrent.MVar (newMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
+import Debug.Trace             (trace, traceM)
 import System.IO.Unsafe        (unsafePerformIO)
 
 type MatrixCell = Vector (Vector Cell)
@@ -74,7 +74,10 @@ data LevelState =
     }
   deriving (Eq, Show)
 
-data AnimationMode = AnimationDo | AnimationUndo | AnimationRedo
+data AnimationMode
+  = AnimationDo
+  | AnimationUndo
+  | AnimationRedo
   deriving (Eq, Show)
 
 data ViewState =
@@ -477,8 +480,7 @@ buildMoveSolver walls = do
       , projection = p2int
       , injection = int2p
       , nodesBound = nodesBound
-      , cacheLookup = \_ _ -> return Nothing
-      , cacheUpdate = \_ _ _ -> return ()
+      , withCache = withCache
       }
   where
     neighbors p0 = do
@@ -491,6 +493,23 @@ buildMoveSolver walls = do
     distance np p0 = fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
 
+    pathCache :: MVar (H.HashMap (Point, Point) [Point])
+    {-# NOINLINE pathCache #-}
+    pathCache = unsafePerformIO $ newMVar H.empty
+
+    withCache src dst algorithm = do
+      let path' =
+            unsafePerformIO $ do
+              hm <- readMVar pathCache
+              return $ H.lookup (src, dst) hm
+      case path' of
+        Just path -> return path
+        Nothing -> do
+          path <- algorithm
+          return $ unsafePerformIO $ do
+            dm <- getDebugModeM
+            when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path} // {walls} |]
+            modifyMVar pathCache (\hm -> return (H.insert (src, dst) path hm, path))
 
 -- memoMoveSolver p0 = memo buildMoveSolver [p0]
 buildPushSolver ::
@@ -507,8 +526,6 @@ buildPushSolver = do
   -- let cache = M.empty :: M.HashMap Point (AStarSolver m Point)
   -- trace [qm| memoMoveSolver {p0}|] $
   let nodesBound = m * n * 4
-  let pathCache = unsafePerformIO $ newMVar H.empty
-      {-# NOINLINE pathCache #-}
   let neighbors (PD p0 d0 _ds0) = do
         moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
@@ -516,7 +533,7 @@ buildPushSolver = do
         let tryBuildPath src dst = do
               accessible <- isAccessible dst
               if accessible
-                then pathToDirections <$> memo2 pathCache myFind src dst
+                then pathToDirections <$> myFind src dst
                 else return []
           -- cont is the "continue push in the direction d0" neighbor
           -- src is the position of the worker for the push
@@ -539,10 +556,11 @@ buildPushSolver = do
       , projection = p2int
       , injection = int2p
       , nodesBound = nodesBound
-      , cacheLookup = \_ _ -> return Nothing
-      , cacheUpdate = \_ _ _ -> return ()
+      , withCache = \_ _ alg -> alg
       }
 
+--  let pathCache = unsafePerformIO $ newMVar H.empty
+--      {-# NOINLINE pathCache #-}
 --                then pathToDirections <$> myFind src dst
 toDirection :: Action -> Direction
 toDirection a =

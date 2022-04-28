@@ -13,7 +13,7 @@ import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isE
                                movePoint, toCell)
 import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, height,
                                initialLevelState, levelState, pathToDirections, viewState, width,
-                               worker)
+                               worker, AnimationMode(AnimationDo))
 import Sokoban.Resources      (yoshiroAutoCollection)
 import Sokoban.Solver         (AStarSolver(..), aStarFind, breadFirstFind)
 
@@ -28,7 +28,7 @@ gs =
     { _collection = yoshiroAutoCollection
     , _index = 0
     , _levelState = fromJust $ initialLevelState $ head $ yoshiroAutoCollection ^. levels
-    , _viewState = ViewState False [] S.empty False False ""
+    , _viewState = ViewState False [] S.empty False AnimationDo ""
     }
 
 spec :: Spec
@@ -113,8 +113,7 @@ spec = do
         , projection = p2i
         , injection = i2p
         , nodesBound = m * n
-        , cacheLookup = \s d -> return Nothing
-        , cacheUpdate = \s d p -> return ()
+        , withCache = \_ _ alg -> alg
         }
     m = gs ^. levelState . height
     n = gs ^. levelState . width

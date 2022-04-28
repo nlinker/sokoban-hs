@@ -16,7 +16,7 @@ import Prelude hiding (id)
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, when)
+import Control.Monad              (forM_, when, unless)
 import Control.Monad.State        (MonadState, evalStateT, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
@@ -45,6 +45,7 @@ import qualified Data.Text.IO   as T
 import           Debug.Trace    (traceM)
 import qualified Sokoban.Model  as A (Action(..))
 import           Sokoban.Solver (breadFirstFind)
+import Sokoban.Debug (setDebugModeM, getDebugModeM)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -61,7 +62,8 @@ whenWith a p runA =
 -- | run console game
 run :: IO ()
 run =
-  do args <- getArgs
+  do setDebugModeM False
+     args <- getArgs
      gameState <- buildGameState args
      do setupScreen
         gameLoop gameState
@@ -116,8 +118,10 @@ buildGameState args = do
 
 gameLoop :: GameState -> IO ()
 gameLoop gs0 = do
-  moveCursorToOrigin
-  render gs0
+  dm <- getDebugModeM
+  unless dm $ do
+    moveCursorToOrigin
+    render gs0
   key <- getKey
   when (key /= "\ESC") $ do
     let gs1 =

@@ -593,4 +593,21 @@ dumpState = do
   let msg2 = msg1 <> concatMap (\x -> show x <> "\n") undos
   viewState . message .= T.pack msg2
 
+optimization idea
+-----------------
+
+cacheLookup src dst =
+  return $ unsafePerformIO $ do
+    hm <- readMVar pathCache
+    dm <- getDebugModeM
+    when dm $ traceM [qm| {(src, dst)} -> {H.lookup (src, dst) hm} // {walls} |]
+    return $ H.lookup (src, dst) hm
+cacheUpdate src dst path =
+  return $ unsafePerformIO $ do
+    traceM [qm| cacheUpdate {(src, dst)} -> {path} // {walls} |]
+        -- dm <- getDebugModeM
+        -- traceM [qm| update {(src, dst)} -> {path} // {walls} |]
+    modifyMVar_ pathCache (return . H.insert (src, dst) path)
+
+
 -}
