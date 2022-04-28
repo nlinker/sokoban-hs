@@ -21,7 +21,8 @@ import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), 
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
-import Control.Monad.State.Strict (MonadState, evalState, execState, get, gets, runState, evalStateT)
+import Control.Monad.State.Strict (MonadState, evalState, evalStateT, execState, get, gets,
+                                   runState)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
@@ -29,8 +30,8 @@ import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
                                    levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
-import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Sokoban.Memo               (memo)
+import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Text.InterpolatedString.QM (qm)
 
 import qualified Data.HashMap.Strict as H
@@ -41,9 +42,7 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Debug.Trace             (trace, traceM)
-import System.IO.Unsafe        (unsafePerformIO)
+import Debug.Trace (trace, traceM)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -119,9 +118,12 @@ data FlatLevelState =
     }
   deriving (Eq, Show)
 
-newtype Ctx = Ctx {
-  _gameState :: GameState
-} deriving (Eq, Show)
+data SolverContext m =
+  SolverContext
+    { _gameState       :: GameState
+    , _moveCache       :: H.HashMap (Point, Point) [Point]
+    , _moveSolverCache :: H.HashMap Point (AStarSolver m Point)
+    }
 
 makeLenses ''Diff
 
@@ -137,7 +139,7 @@ makeLenses ''GameState
 
 makePrisms ''UndoItem
 
-makeLenses ''Ctx
+makeLenses ''SolverContext
 
 data Action
   = Up
@@ -344,7 +346,9 @@ moveWorker d storeUndo = do
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
   src <- use (levelState . worker)
-  solver <- buildMoveSolver []
+  gs <- get
+  let ctx = SolverContext gs H.empty H.empty
+  solver <- evalStateT (buildMoveSolver []) ctx
   dirs <- pathToDirections <$> aStarFind solver src dst (return . (== dst))
   diffs' <- sequenceA <$> mapM doMove dirs
   case diffs' of
@@ -368,7 +372,9 @@ computeWorkerReachability = do
   where
     findWorkerArea :: MonadState GameState m => Point -> m (S.HashSet Point)
     findWorkerArea s = do
-      moveSolver <- buildMoveSolver []
+      gs <- get
+      let ctx = SolverContext gs H.empty H.empty
+      moveSolver <- evalStateT (buildMoveSolver []) ctx
       area <- breadFirstFind moveSolver s
       return $ S.fromList area
 
@@ -387,7 +393,7 @@ computeBoxReachability box = do
       sources <- findBoxDirections s
       areas <-
         forM sources $ \src -> do
-          let ctx = Ctx gs
+          let ctx = SolverContext gs H.empty H.empty
           pushSolver <- evalStateT buildPushSolver ctx -- :: AStarSolver m PD
           breadFirstFind pushSolver src
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
@@ -431,7 +437,7 @@ moveBoxesByWorker src dst = do
         forM srcs $ \src -> do
           let dst = PD t D []
           let stopCond (PD p _ _) = return $ p == t
-          let ctx = Ctx gs
+          let ctx = SolverContext gs H.empty H.empty
           pushSolver <- evalStateT buildPushSolver ctx -- :: AStarSolver m PD
           path <- aStarFind pushSolver src dst stopCond
           return $ pushPathToDirections path
@@ -463,7 +469,9 @@ eraseBoxes boxez gs =
 
 findBoxDirections :: MonadState GameState m => Point -> m [PD]
 findBoxDirections box = do
-  moveSolver <- buildMoveSolver [box]
+  gs <- get
+  let ctx = SolverContext gs H.empty H.empty
+  moveSolver <- evalStateT (buildMoveSolver [box]) ctx
   let isAccessible p = isEmptyOrGoal <$> getCell p
   let tryBuildPath src dst = do
         accessible <- isAccessible dst
@@ -476,10 +484,10 @@ findBoxDirections box = do
   let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
   return dirPoints
 
-buildMoveSolver :: MonadState GameState m => [Point] -> m (AStarSolver m Point)
+buildMoveSolver :: (MonadState (SolverContext n) m, MonadState GameState n) => [Point] -> m (AStarSolver n Point)
 buildMoveSolver walls = do
-  m <- use (levelState . height)
-  n <- use (levelState . width)
+  m <- use (gameState . levelState . height)
+  n <- use (gameState . levelState . width)
   let p2int (Point i j) = i * n + j
   let int2p k = Point (k `div` n) (k `mod` n)
   let nodesBound = m * n
@@ -491,7 +499,7 @@ buildMoveSolver walls = do
       , projection = p2int
       , injection = int2p
       , nodesBound = nodesBound
-      , withCache = withCache
+      , withCache = \_ _ alg -> alg
       }
   where
     neighbors p0 = do
@@ -504,28 +512,12 @@ buildMoveSolver walls = do
     distance np p0 = fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
 
-    pathCache :: MVar (H.HashMap (Point, Point) [Point])
-    {-# NOINLINE pathCache #-}
-    pathCache = unsafePerformIO $ newMVar H.empty
-
-    withCache src dst algorithm = do
-      let path' =
-            unsafePerformIO $ do
-              hm <- readMVar pathCache
-              return $ H.lookup (src, dst) hm
-      case path' of
-        Just path -> return path
-        Nothing -> do
-          path <- algorithm
-          return $ unsafePerformIO $
---            dm <- getDebugModeM
---            hm <- readMVar pathCache
---            when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path}: {walls} size={H.size hm} |]
-            modifyMVar pathCache (\hm -> return (H.insert (src, dst) path hm, path))
-
 -- memoMoveSolver p0 = memo buildMoveSolver [p0]
-buildPushSolver :: forall m n . (MonadState Ctx m, MonadState GameState n) => m (AStarSolver n PD)
+buildPushSolver ::
+     forall m n. (MonadState (SolverContext n) m, MonadState GameState n)
+  => m (AStarSolver n PD)
 buildPushSolver = do
+  ctx <- get
   m <- use (gameState . levelState . height)
   n <- use (gameState . levelState . width)
   let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
@@ -534,21 +526,8 @@ buildPushSolver = do
             k4 = k `div` 4
          in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   let nodesBound = m * n * 4
-  -- let cache = M.empty :: M.HashMap Point (AStarSolver m Point)
-  -- trace [qm| memoMoveSolver {p0}|] $
-  return $
-    AStarSolver
-      { neighbors = neighbors
-      , distance = distance
-      , heuristic = heuristic
-      , projection = p2int
-      , injection = int2p
-      , nodesBound = nodesBound
-      , withCache = \_ _ alg -> alg
-      }
-  where
-    neighbors (PD p0 d0 _ds0) = do
-        moveSolver <- buildMoveSolver [p0]
+  let neighbors (PD p0 d0 _ds0) = do
+        moveSolver <- evalStateT (buildMoveSolver [p0]) ctx
         let isAccessible p = isEmptyOrGoal <$> getCell p
         let myFind src dst = aStarFind moveSolver src dst (return . (== dst))
         let tryBuildPath src dst = do
@@ -564,10 +543,23 @@ buildPushSolver = do
         let otherDirs = filter (/= d0) [U, D, L, R]
         paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
         (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+  -- let cache = M.empty :: M.HashMap Point (AStarSolver m Point)
+  -- trace [qm| memoMoveSolver {p0}|] $
+  return $
+    AStarSolver
+      { neighbors = neighbors
+      , distance = distance
+      , heuristic = heuristic
+      , projection = p2int
+      , injection = int2p
+      , nodesBound = nodesBound
+      , withCache = \_ _ alg -> alg
+      }
+  where
     heuristic (PD (Point i1 j1) d1 ds1) (PD (Point i2 j2) d2 _ds2) =
-        return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2) + length ds1
+      return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2) + length ds1
     distance np p0 = fromEnum (np /= p0)
-    
+
 toDirection :: Action -> Direction
 toDirection a =
   case a of

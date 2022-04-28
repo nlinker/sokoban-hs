@@ -605,8 +605,8 @@ cacheLookup src dst =
 cacheUpdate src dst path =
   return $ unsafePerformIO $ do
     traceM [qm| cacheUpdate {(src, dst)} -> {path} // {walls} |]
-        -- dm <- getDebugModeM
-        -- traceM [qm| update {(src, dst)} -> {path} // {walls} |]
+      dm <- getDebugModeM
+      traceM [qm| update {(src, dst)} -> {path} // {walls} |]
     modifyMVar_ pathCache (return . H.insert (src, dst) path)
 
     moveSolverCache :: MVar (H.HashMap Point (AStarSolver m Point))
@@ -623,9 +623,27 @@ cacheUpdate src dst path =
         Nothing -> do
           solver <- builder
           return $ unsafePerformIO $
---            hm <- readMVar moveSolverCache
---            dm <- getDebugModeM
---            when dm $ traceM [qm| withCache moveSolverCache {p}: size={H.size hm} |]
+            hm <- readMVar moveSolverCache
+            dm <- getDebugModeM
+            when dm $ traceM [qm| withCache moveSolverCache {p}: size={H.size hm} |]
             modifyMVar moveSolverCache (\hm -> return (H.insert p solver hm, solver))
 
+    pathCache :: MVar (H.HashMap (Point, Point) [Point])
+    {-# NOINLINE pathCache #-}
+    pathCache = unsafePerformIO $ newMVar H.empty
+
+    withCache src dst algorithm = do
+      let path' =
+            unsafePerformIO $ do
+              hm <- readMVar pathCache
+              return $ H.lookup (src, dst) hm
+      case path' of
+        Just path -> return path
+        Nothing -> do
+          path <- algorithm
+          return $ unsafePerformIO $
+            dm <- getDebugModeM
+            hm <- readMVar pathCache
+            when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path}: {walls} size={H.size hm} |]
+            modifyMVar pathCache (\hm -> return (H.insert (src, dst) path hm, path))
 -}

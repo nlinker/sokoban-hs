@@ -16,22 +16,25 @@ import Prelude hiding (id)
 import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, when, unless)
+import Control.Monad              (forM_, unless, when)
 import Control.Monad.State        (MonadState, evalStateT, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
+import Debug.Trace                (traceM)
+import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model              (GameState(..), ViewState(..), animationMode, animateRequired,
-                                   buildMoveSolver, cells, clicks, destinations, direction,
-                                   doClearScreen, doMove, getCell, height, id, initialLevelState,
-                                   isComplete, levelState, levelState, message, moveCount,
-                                   pushCount, stats, step, undoIndex, undoMove, undoStack,
-                                   viewState, width, _UndoItem, AnimationMode(..))
+import Sokoban.Model              (AnimationMode(..), GameState(..), SolverContext(..),
+                                   ViewState(..), animateRequired, animationMode, buildMoveSolver,
+                                   cells, clicks, destinations, direction, doClearScreen, doMove,
+                                   getCell, height, id, initialLevelState, isComplete, levelState,
+                                   levelState, message, moveCount, pushCount, stats, step,
+                                   undoIndex, undoMove, undoStack, viewState, width, _UndoItem)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection)
+import Sokoban.Solver             (breadFirstFind)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
@@ -39,13 +42,11 @@ import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEc
 import Text.InterpolatedString.QM (qm, qms)
 import Text.Read                  (readMaybe)
 
-import qualified Data.HashSet   as S
-import qualified Data.Text      as T
-import qualified Data.Text.IO   as T
-import           Debug.Trace    (traceM)
-import qualified Sokoban.Model  as A (Action(..))
-import           Sokoban.Solver (breadFirstFind)
-import Sokoban.Debug (setDebugModeM, getDebugModeM)
+import qualified Data.HashMap.Strict as H
+import qualified Data.HashSet        as S
+import qualified Data.Text           as T
+import qualified Data.Text.IO        as T
+import qualified Sokoban.Model       as A (Action(..))
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -136,7 +137,8 @@ gameLoop gs0 = do
             "i" -> step gs0 A.Redo
             "r" -> step gs0 A.Restart
             "d" -> step gs0 A.ToggleDebugMode
-            _ -> case interpretClick gs0 key of
+            _ ->
+              case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
                 (Nothing, gs)     -> gs
     -- perform animation if needed
@@ -173,7 +175,6 @@ animate gsFrom gsTo = do
       render gs2
       threadDelay animationTickDelay
       animateDo gs2 dirs
-
     animateUndo _ [] = return ()
     animateUndo gs (diff:diffs) = do
       let gs2 = execState (undoMove diff) gs
@@ -181,7 +182,6 @@ animate gsFrom gsTo = do
       render gs2
       threadDelay animationTickDelayInUndoRedo
       animateUndo gs2 diffs
-
     animateRedo _ [] = return ()
     animateRedo gs (dir:dirs) = do
       let gs2 = execState (doMove dir) gs
@@ -405,7 +405,8 @@ runTest = do
     flip evalStateT gs $
 --    solver <- buildPushSolver
      do
-      solver <- buildMoveSolver []
+      let ctx = SolverContext gs H.empty H.empty
+      solver <- evalStateT (buildMoveSolver []) ctx
       area <- breadFirstFind solver (Point 2 1)
       traceM [qm| area={area} |]
       return area
