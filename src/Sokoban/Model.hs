@@ -21,7 +21,7 @@ import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), 
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
-import Control.Monad.State.Strict (MonadState, evalState, execState, get, gets, runState)
+import Control.Monad.State.Strict (MonadState, evalState, execState, get, gets, runState, evalStateT)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
@@ -119,6 +119,10 @@ data FlatLevelState =
     }
   deriving (Eq, Show)
 
+newtype Ctx = Ctx {
+  _gameState :: GameState
+} deriving (Eq, Show)
+
 makeLenses ''Diff
 
 makeLenses ''LevelState
@@ -132,6 +136,8 @@ makeLenses ''FlatLevelState
 makeLenses ''GameState
 
 makePrisms ''UndoItem
+
+makeLenses ''Ctx
 
 data Action
   = Up
@@ -377,10 +383,12 @@ computeBoxReachability box = do
   where
     findBoxArea :: MonadState GameState m => Point -> m (S.HashSet Point)
     findBoxArea s = do
+      gs <- get
       sources <- findBoxDirections s
       areas <-
         forM sources $ \src -> do
-          pushSolver <- buildPushSolver -- :: AStarSolver m PD
+          let ctx = Ctx gs
+          pushSolver <- evalStateT buildPushSolver ctx -- :: AStarSolver m PD
           breadFirstFind pushSolver src
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
@@ -418,11 +426,13 @@ moveBoxesByWorker src dst = do
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       srcs <- findBoxDirections s
+      gs <- get
       paths <-
         forM srcs $ \src -> do
           let dst = PD t D []
           let stopCond (PD p _ _) = return $ p == t
-          pushSolver <- buildPushSolver -- :: AStarSolver m PD
+          let ctx = Ctx gs
+          pushSolver <- evalStateT buildPushSolver ctx -- :: AStarSolver m PD
           path <- aStarFind pushSolver src dst stopCond
           return $ pushPathToDirections path
       let nePaths = filter (not . null) paths
@@ -507,20 +517,17 @@ buildMoveSolver walls = do
         Just path -> return path
         Nothing -> do
           path <- algorithm
-          return $ unsafePerformIO $ do
+          return $ unsafePerformIO $
 --            dm <- getDebugModeM
 --            hm <- readMVar pathCache
 --            when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path}: {walls} size={H.size hm} |]
             modifyMVar pathCache (\hm -> return (H.insert (src, dst) path hm, path))
 
 -- memoMoveSolver p0 = memo buildMoveSolver [p0]
-buildPushSolver ::
-     forall m. MonadState GameState m
-  => m (AStarSolver m PD)
-{-# NOINLINE buildPushSolver #-}
+buildPushSolver :: forall m n . (MonadState Ctx m, MonadState GameState n) => m (AStarSolver n PD)
 buildPushSolver = do
-  m <- use (levelState . height)
-  n <- use (levelState . width)
+  m <- use (gameState . levelState . height)
+  n <- use (gameState . levelState . width)
   let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
   let int2p k =
         let kdir = k `mod` 4
@@ -540,28 +547,8 @@ buildPushSolver = do
       , withCache = \_ _ alg -> alg
       }
   where
-    moveSolverCache :: MVar (H.HashMap Point (AStarSolver m Point))
-    moveSolverCache = unsafePerformIO $ newMVar H.empty
-    {-# NOINLINE moveSolverCache #-}
-
-    withCache p builder = do
-      let path' =
-            unsafePerformIO $ do
-              hm <- readMVar moveSolverCache
-              return $ H.lookup p hm
-      case path' of
-        Just path -> return path
-        Nothing -> do
-          solver <- builder
-          return $ unsafePerformIO $ do
-            hm <- readMVar moveSolverCache
-            dm <- getDebugModeM
---            when dm $ traceM [qm| withCache moveSolverCache {p}: size={H.size hm} |]
-            modifyMVar moveSolverCache (\hm -> return (H.insert p solver hm, solver))
-    
     neighbors (PD p0 d0 _ds0) = do
-        
-        moveSolver <- withCache p0 (buildMoveSolver [p0])
+        moveSolver <- buildMoveSolver [p0]
         let isAccessible p = isEmptyOrGoal <$> getCell p
         let myFind src dst = aStarFind moveSolver src dst (return . (== dst))
         let tryBuildPath src dst = do
