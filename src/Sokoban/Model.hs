@@ -10,6 +10,7 @@
 {-# LANGUAGE TupleSections         #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# LANGUAGE Strict #-}
 
 module Sokoban.Model where
 
@@ -22,7 +23,7 @@ import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), 
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.State.Strict (MonadState, evalState, evalStateT, execState, get, gets,
-                                   runState)
+                                   runState, lift)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
@@ -43,6 +44,7 @@ import qualified Sokoban.Level       as L (cells, height, id, width)
 import qualified Text.Builder        as TB
 
 import Debug.Trace (trace, traceM)
+import System.IO.Unsafe (unsafePerformIO)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -121,7 +123,7 @@ data FlatLevelState =
 data SolverContext m =
   SolverContext
     { _gameState       :: GameState
-    , _moveCache       :: H.HashMap (Point, Point) [Point]
+    , _pathCache       :: H.HashMap (Point, Point) [Point]
     , _moveSolverCache :: H.HashMap Point (AStarSolver m Point)
     }
 
@@ -527,7 +529,16 @@ buildPushSolver = do
          in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   let nodesBound = m * n * 4
   let neighbors (PD p0 d0 _ds0) = do
-        moveSolver <- evalStateT (buildMoveSolver [p0]) ctx
+        (moveSolver :: AStarSolver n Point) <- flip evalStateT ctx $ do
+          msc <- use moveSolverCache
+          traceM [qm| return cached {p0} {H.size msc} |]
+          case H.lookup p0 msc of
+            Just solver -> return solver
+            Nothing -> do
+              solver <- buildMoveSolver [p0]
+              moveSolverCache .= H.insert p0 solver msc
+              return solver
+
         let isAccessible p = isEmptyOrGoal <$> getCell p
         let myFind src dst = aStarFind moveSolver src dst (return . (== dst))
         let tryBuildPath src dst = do
