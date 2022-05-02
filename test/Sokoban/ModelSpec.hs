@@ -3,19 +3,21 @@
 
 module Sokoban.ModelSpec where
 
-import Control.Arrow          (second)
-import Control.Lens           ((&), (.~), (^.))
-import Control.Monad.Identity (runIdentity)
-import Control.Monad.State    (evalState)
-import Data.Maybe             (fromJust)
-import Sokoban.Console        (interpretClick, render)
-import Sokoban.Level          (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal, levels,
-                               movePoint, toCell)
-import Sokoban.Model          (GameState(..), ViewState(..), clicks, getCell, height,
-                               initialLevelState, levelState, pathToDirections, viewState, width,
-                               worker, AnimationMode(AnimationDo))
-import Sokoban.Resources      (yoshiroAutoCollection)
-import Sokoban.Solver         (AStarSolver(..), aStarFind, breadFirstFind)
+import Control.Arrow              (second)
+import Control.Lens               ((&), (.~), (^.))
+import Control.Monad.Identity     (runIdentity)
+import Control.Monad.ST.Strict    (runST)
+import Control.Monad.State        (evalState)
+import Control.Monad.State.Strict (StateT, evalStateT)
+import Data.Maybe                 (fromJust)
+import Sokoban.Console            (interpretClick, render)
+import Sokoban.Level              (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal,
+                                   levels, movePoint, toCell)
+import Sokoban.Model              (AnimationMode(AnimationDo), GameState(..), ViewState(..), clicks,
+                                   getCell, height, initialLevelState, levelState, pathToDirections,
+                                   viewState, width, worker)
+import Sokoban.Resources          (yoshiroAutoCollection)
+import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
@@ -103,8 +105,12 @@ spec = do
       map (fromCell . toCell) codes `shouldBe` codes
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
-    breadFirstTest src = runIdentity $ breadFirstFind solver src
-    aStarTest src dst = runIdentity $ aStarFind solver src dst (return . (== dst))
+    breadFirstTest :: Point -> [Point]
+    breadFirstTest src = runIdentity $ return $ runST $ evalStateT (breadFirstFind solver src) gs
+    aStarTest :: Point -> Point -> [Point]
+    aStarTest src dst = runIdentity $ return $ runST $ evalStateT (aStarFind solver src dst (== dst)) gs
+    -- aStarFind :: AStarSolver (StateT GameState (GHC.ST.ST s)) Point -> Point -> Point -> (Point -> Bool) -> StateT GameState (GHC.ST.ST s) [Point]    -- Sokoban.Solver
+    solver :: Monad m => AStarSolver (StateT GameState m) Point
     solver =
       AStarSolver
         { neighbors = neighbors
@@ -113,7 +119,6 @@ spec = do
         , projection = p2i
         , injection = i2p
         , nodesBound = m * n
-        , withCache = \_ _ alg -> alg
         }
     m = gs ^. levelState . height
     n = gs ^. levelState . width

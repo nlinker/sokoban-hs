@@ -16,6 +16,7 @@
 {-# LANGUAGE UnboxedTuples              #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Sokoban.Solver where
 
@@ -23,9 +24,6 @@ import Prelude hiding (Left, Right, id)
 
 import Control.Monad                   (filterM, forM_)
 import Control.Monad.Primitive         (PrimMonad(..), PrimState)
-import Control.Monad.ST.Trans          (runSTT)
-import Control.Monad.ST.Trans.Internal (STT(..), STTRet(..))
-import Control.Monad.State.Strict      (lift)
 import Data.Hashable                   (Hashable)
 import Data.Maybe                      (fromMaybe, isJust)
 import Text.InterpolatedString.QM      (qm)
@@ -33,14 +31,7 @@ import Text.InterpolatedString.QM      (qm)
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.Heap.Mutable.ModelD   as HMD
 import Debug.Trace (traceM)
-
-instance (Monad m) => PrimMonad (STT s m) where
-  type PrimState (STT s m) = s
-  primitive f =
-    STT $ \s ->
-      case f s of
-        (# t, a #) -> return (STTRet t a)
-  {-# INLINE primitive #-}
+import Data.Primitive (newMutVar, readMutVar, modifyMutVar')
 
 newtype Min =
   Min Int
@@ -55,70 +46,73 @@ instance Monoid Min where
 data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Eq p) =>
     { neighbors  :: p -> m [p]
-    , distance   :: p -> p -> Int -- for adjacent points only
-    , heuristic  :: p -> p -> m Int
-    , projection :: p -> Int
-    , injection  :: Int -> p
-    , nodesBound :: Int -- upper bound for the number of nodes
-    , withCache :: p -> p -> m [p] -> m [p]
+    , distance   :: p -> p -> Int   -- for adjacent points only
+    , heuristic  :: p -> p -> m Int -- calculate heuristic distance from first to second point   
+    , projection :: p -> Int        -- a function to convert points to integer for Heap data structure
+    , injection  :: Int -> p        -- an opposite function to projection   
+    , nodesBound :: Int             -- upper bound for the number of nodes
     } -> AStarSolver m p
 
-aStarFind :: forall m p . (Monad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> m Bool) -> m [p]
-aStarFind solver src dst stopCond = do
-  let p2i = projection solver
-  let maxCount = nodesBound solver
-  withCache solver src dst $ do
-    path <- runSTT $ do
-      openHeap <- HMD.new maxCount :: STT s m (HMD.Heap s Min)
-      openList <- HM.new           :: STT s m (HM.MHashMap s Int (p, p, Int))
-      closedList <- HM.new         :: STT s m (HM.MHashMap s p p)
-      let isrc = p2i src
-      HMD.unsafePush (Min 0) isrc openHeap
-      HM.insert openList isrc (src, src, 0)
-      -- the loop until heap becomes empty
-      let aStarFindRec = do
-            top' <- HMD.pop openHeap -- remove the minimum and return
-            case top' of
-                Nothing -> return []
-                Just (_fscore, ip0) -> do
-                  (p0, parent0,  gscore0) <- fromMaybe (error [qm| {ip0} is not found in openList |]) <$> HM.lookup openList ip0
-                  HM.insert closedList p0 parent0
-                  finished <- lift $ stopCond p0
-                  if finished
-                    then do
-                      backtraceST closedList p0
-                    else do
-                      neighCandidates <- lift $ neighbors solver p0
-                      let isAcc p = do
-                            mc <- member closedList p
-                            mo <- member openList (p2i p)
-                            return $ not mc && not mo
-                      neighbors <- filterM isAcc neighCandidates
-                      forM_ neighbors $ \np -> do
-                        let inp = p2i np
-                        hue <- lift $ heuristic solver np dst
-                        let dist = distance solver np p0
-                        let gscoreNp = gscore0 + dist
-                        let fscoreNp = Min (gscore0 + dist + hue)
-                        pg' <- HM.lookup openList inp
-                        case pg' of
-                          Just (p, parent, gscore) | gscoreNp < gscore -> do
-                            -- the neighbour can be reached with smaller cost - change priority
-                            -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
-                            -- openList .= Q.insert np f1 w1 openList0
-                            HMD.push fscoreNp (p2i p) openHeap
-                            HM.insert openList (p2i p) (p, parent, gscoreNp)
-                          Nothing -> do
-                            -- the neighbour is new
-                            -- openList .= Q.insert np f1 w1 openList0
-                            HMD.push fscoreNp inp openHeap
-                            HM.insert openList inp (np, p0, gscoreNp)
-                          _ -> return ()
-                      aStarFindRec
-      aStarFindRec -- recursive call inside path <- runSTT $ do
-    return path
+aStarFind :: forall m p . (PrimMonad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> Bool) -> m [p]
+aStarFind AStarSolver {..} src dst stopCond = do
+  let p2i = projection
+  let maxCount = nodesBound
+  maxSize <- newMutVar (0 :: Int)
+  path <- do
+    openHeap <- HMD.new maxCount :: m (HMD.Heap (PrimState m) Min)
+    openList <- HM.new           :: m (HM.MHashMap (PrimState m) Int (p, p, Int))
+    closedList <- HM.new         :: m (HM.MHashMap (PrimState m) p p)
+    let isrc = p2i src
+    HMD.unsafePush (Min 0) isrc openHeap
+    HM.insert openList isrc (src, src, 0)
+    -- the loop until heap becomes empty
+    let aStarFindRec :: m [p]
+        aStarFindRec = do
+          top' <- HMD.pop openHeap -- remove the minimum and return
+          case top' of
+              Nothing -> return []
+              Just (_fscore, ip0) -> do
+                (p0, parent0,  gscore0) <- fromMaybe (error [qm| {ip0} is not found in openList |]) <$> HM.lookup openList ip0
+                HM.insert closedList p0 parent0
+                if stopCond p0
+                  then do
+                    backtraceST closedList p0
+                  else do
+                    neighCandidates <- neighbors p0
+                    let isAcc p = do
+                          mc <- member closedList p
+                          mo <- member openList (p2i p)
+                          return $ not mc && not mo
+                    neighbors <- filterM isAcc neighCandidates
+                    forM_ neighbors $ \np -> do
+                      let inp = p2i np
+                      hue <- heuristic np dst
+                      let dist = distance np p0
+                      let gscoreNp = gscore0 + dist
+                      let fscoreNp = Min (gscore0 + dist + hue)
+                      pg' <- HM.lookup openList inp
+                      case pg' of
+                        Just (p, parent, gscore) | gscoreNp < gscore -> do
+                          -- the neighbour can be reached with smaller cost - change priority
+                          -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
+                          -- openList .= Q.insert np f1 w1 openList0
+                          modifyMutVar' maxSize (+1)
+                          HMD.push fscoreNp (p2i p) openHeap
+                          HM.insert openList (p2i p) (p, parent, gscoreNp)
+                        Nothing -> do
+                          -- the neighbour is new
+                          -- openList .= Q.insert np f1 w1 openList0
+                          modifyMutVar' maxSize (+1)
+                          HMD.push fscoreNp inp openHeap
+                          HM.insert openList inp (np, p0, gscoreNp)
+                        _ -> return ()
+                    aStarFindRec
+    aStarFindRec -- recursive call inside path <- runSTT $ do
+  v <- readMutVar maxSize
+  traceM [qm| max size = {v} |]
+  return path
   where
-    member :: (Monad m, Hashable k, Eq k) => HM.MHashMap s k a -> k -> STT s m Bool
+    member :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k a -> k -> m Bool
     member hm p = do
       v' <- HM.lookup hm p
       return $ isJust v'
@@ -137,16 +131,18 @@ backtraceST closedList dst = do
           | current == parent -> return acc
         Just parent -> backtraceRec parent (parent : acc)
 
-breadFirstFind :: forall m p . (Monad m, Hashable p, Ord p, Show p) => AStarSolver m p -> p -> m [p]
-breadFirstFind solver src = do
-  let p2i = projection solver
-  let maxCount = nodesBound solver
-  path <- runSTT $ do
-    openHeap <- HMD.new maxCount :: STT s m (HMD.Heap s Min)
-    openList <- HM.new           :: STT s m (HM.MHashMap s Int (p, p))
-    closedList <- HM.new         :: STT s m (HM.MHashMap s p p)
+breadFirstFind :: forall m p . (PrimMonad m, Hashable p, Ord p, Show p) => AStarSolver m p -> p -> m [p]
+breadFirstFind AStarSolver{..} src = do
+  let p2i = projection
+  maxSize <- newMutVar (0 :: Int)
+  let maxCount = nodesBound
+  traceM [qm| maxCount = {maxCount} |]
+  path <- do
+    openHeap <- HMD.new maxCount :: m (HMD.Heap (PrimState m) Min)
+    openList <- HM.new           :: m (HM.MHashMap (PrimState m) Int (p, p))
+    closedList <- HM.new         :: m (HM.MHashMap (PrimState m) p p)
     let isrc = p2i src
-    HMD.unsafePush (Min 0) isrc openHeap
+    HMD.push (Min 0) isrc openHeap
     HM.insert openList isrc (src, src)
 
     -- the loop until heap becomes empty
@@ -158,7 +154,7 @@ breadFirstFind solver src = do
               Just (Min dist0, ip0) -> do
                 (p0, parent0) <- fromMaybe (error [qm| {ip0} is not found in openList |]) <$> HM.lookup openList ip0
                 HM.insert closedList p0 parent0
-                neighCandidates <- lift $ neighbors solver p0
+                neighCandidates <- neighbors p0
                 let isAcc p = do
                       mc <- member closedList p
                       mo <- member openList (p2i p)
@@ -166,7 +162,7 @@ breadFirstFind solver src = do
                 neighbors <- filterM isAcc neighCandidates
                 forM_ neighbors $ \np -> do
                   let inp = p2i np
-                  let distNp = distance solver np p0
+                  let distNp = distance np p0
                   let gscoreNp = Min $ dist0 + distNp
                   pg' <- HM.lookup openList inp
                   case pg' of
@@ -174,20 +170,25 @@ breadFirstFind solver src = do
                       -- the neighbour can be reached with smaller cost - change priority
                       -- otherwise don't touch the neighbour, it will be taken by open_list.pop()
                       -- openList .= Q.insert np f1 w1 openList0
+                      modifyMutVar' maxSize (+1)
                       HMD.push gscoreNp (p2i p) openHeap
                       HM.insert openList (p2i p) (np, parent)
                     Nothing -> do
                       -- the neighbour is new
                       -- openList .= Q.insert np f1 w1 openList0
+                      modifyMutVar' maxSize (+1)
                       HMD.push gscoreNp inp openHeap
                       HM.insert openList inp (np, p0)
                 breadFirstFindRec (it + 1)
     breadFirstFindRec 0-- call the function
+  v <- readMutVar maxSize
+  traceM [qm| max size = {v} |]
   return path
   where
-    keys :: (Monad m, Hashable k, Eq k) => HM.MHashMap s k v -> STT s m [k]
+    keys :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k v -> m [k]
     keys hm = HM.foldM (\a k _v -> return $ k : a) [] hm
-    member :: (Monad m, Hashable k, Eq k) => HM.MHashMap s k a -> k -> STT s m Bool
+    
+    member :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k a -> k -> m Bool
     member hm p = do
       v' <- HM.lookup hm p
       return $ isJust v'

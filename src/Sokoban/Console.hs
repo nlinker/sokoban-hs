@@ -17,7 +17,8 @@ import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, unless, when)
-import Control.Monad.State        (MonadState, evalStateT, execState, runState)
+import Control.Monad.ST.Strict    (runST)
+import Control.Monad.State.Strict (MonadState, evalStateT, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
@@ -42,11 +43,11 @@ import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEc
 import Text.InterpolatedString.QM (qm, qms)
 import Text.Read                  (readMaybe)
 
-import qualified Data.HashMap.Strict as H
-import qualified Data.HashSet        as S
-import qualified Data.Text           as T
-import qualified Data.Text.IO        as T
-import qualified Sokoban.Model       as A (Action(..))
+import qualified Data.HashMap.Mutable.Basic as HM
+import qualified Data.HashSet               as S
+import qualified Data.Text                  as T
+import qualified Data.Text.IO               as T
+import qualified Sokoban.Model              as A (Action(..))
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -401,13 +402,12 @@ runTest :: IO ()
 runTest = do
   gs <- buildGameState []
   render gs
-  x <-
-    flip evalStateT gs $
---    solver <- buildPushSolver
-     do
-      let ctx = SolverContext gs H.empty H.empty
-      solver <- evalStateT (buildMoveSolver []) ctx
-      area <- breadFirstFind solver (Point 2 1)
-      traceM [qm| area={area} |]
-      return area
+  let x =
+        runST $ do
+          hm <- HM.new
+          let ctx = SolverContext hm (gs ^. levelState . height) (gs ^. levelState . width)
+          solver <- buildMoveSolver ctx []
+          area <- evalStateT (breadFirstFind solver (Point 2 1)) gs
+          traceM [qm| area={area} |]
+          return area
   putStrLn [qm| x={x} |]

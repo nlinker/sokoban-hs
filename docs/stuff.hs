@@ -646,4 +646,23 @@ cacheUpdate src dst path =
             hm <- readMVar pathCache
             when dm $ traceM [qm| cacheUpdate {(src, dst)} -> {path}: {walls} size={H.size hm} |]
             modifyMVar pathCache (\hm -> return (H.insert (src, dst) path hm, path))
+
+instance (Monad m) => PrimMonad (STT s m) where
+  type PrimState (STT s m) = s
+  primitive f =
+    STT $ \s ->
+      case f s of
+        (# t, a #) -> return (STTRet t a)
+  {-# INLINE primitive #-}
+
+trace :: String -> String -> IO ()
+trace act sql =
+  do t <- tracingEnabled
+   when t $ do
+      let s = act ++ ": " ++ sql
+            mf <- traceFile
+            case mf of
+              Nothing -> hPutStrLn stderr s
+              Just f  -> appendFile f s
+
 -}
