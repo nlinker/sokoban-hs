@@ -344,7 +344,6 @@ moveWorker d storeUndo = do
         levelState . undoStack .= UndoItem [diff] : drop uidx (ls ^. undoStack)
         levelState . undoIndex .= 0
 
--- forall m . PrimMonad m =>
 moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
 moveWorkerAlongPath dst = do
   src <- use (levelState . worker)
@@ -375,10 +374,7 @@ computeWorkerReachability = do
   area <- S.delete w <$> findWorkerArea w
   viewState . destinations .= area
   where
-    findWorkerArea ::
-         forall m. MonadState GameState m
-      => Point
-      -> m (S.HashSet Point)
+    findWorkerArea :: forall m. MonadState GameState m => Point -> m (S.HashSet Point)
     findWorkerArea s = do
       gs <- get
       let m = gs ^. levelState . height
@@ -545,7 +541,6 @@ buildMoveSolver ctx walls = do
     distance np p0 = fromEnum (np /= p0)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
 
--- memoMoveSolver p0 = memo buildMoveSolver [p0]
 buildPushSolver ::
      forall m. PrimMonad m
   => SolverContext m
@@ -578,9 +573,9 @@ buildPushSolver ctx = do
             if accessible
               then pathToDirections <$> myFind src dst
               else return []
-          -- cont is the "continue push in the direction d0" neighbor
-          -- src is the position of the worker for the push
-          -- directed is the same box but with changed push direction
+      -- cont is the "continue push in the direction d0" neighbor
+      -- src is the position of the worker for the push
+      -- directed is the same box but with changed push direction
       cont <- filterM (\(PD p _ _) -> isAccessible p) [PD (movePoint p0 d0) d0 [d0]]
       let src = movePoint p0 (opposite d0)
       let otherDirs = filter (/= d0) [U, D, L, R]

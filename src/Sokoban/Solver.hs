@@ -108,7 +108,7 @@ aStarFind AStarSolver {..} src dst stopCond = do
                     aStarFindRec
     aStarFindRec -- recursive call inside path <- runSTT $ do
   _v <- readMutVar maxSize
---  traceM [qm| max size = {v} |]
+  --  traceM [qm| max size = {v} |]
   return path
   where
     member :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k a -> k -> m Bool
@@ -180,7 +180,7 @@ breadFirstFind AStarSolver{..} src = do
                 breadFirstFindRec (it + 1)
     breadFirstFindRec 0-- call the function
   _v <- readMutVar maxSize
---  traceM [qm| max size = {v} |]
+  --  traceM [qm| max size = {v} |]
   return path
   where
     keys :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k v -> m [k]
