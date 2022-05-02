@@ -30,7 +30,6 @@ import Text.InterpolatedString.QM      (qm)
 
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.Heap.Mutable.ModelD   as HMD
-import Debug.Trace (traceM)
 import Data.Primitive (newMutVar, readMutVar, modifyMutVar')
 
 newtype Min =
@@ -108,8 +107,8 @@ aStarFind AStarSolver {..} src dst stopCond = do
                         _ -> return ()
                     aStarFindRec
     aStarFindRec -- recursive call inside path <- runSTT $ do
-  v <- readMutVar maxSize
-  traceM [qm| max size = {v} |]
+  _v <- readMutVar maxSize
+--  traceM [qm| max size = {v} |]
   return path
   where
     member :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k a -> k -> m Bool
@@ -136,7 +135,6 @@ breadFirstFind AStarSolver{..} src = do
   let p2i = projection
   maxSize <- newMutVar (0 :: Int)
   let maxCount = nodesBound
-  traceM [qm| maxCount = {maxCount} |]
   path <- do
     openHeap <- HMD.new maxCount :: m (HMD.Heap (PrimState m) Min)
     openList <- HM.new           :: m (HM.MHashMap (PrimState m) Int (p, p))
@@ -181,8 +179,8 @@ breadFirstFind AStarSolver{..} src = do
                       HM.insert openList inp (np, p0)
                 breadFirstFindRec (it + 1)
     breadFirstFindRec 0-- call the function
-  v <- readMutVar maxSize
-  traceM [qm| max size = {v} |]
+  _v <- readMutVar maxSize
+--  traceM [qm| max size = {v} |]
   return path
   where
     keys :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k v -> m [k]
