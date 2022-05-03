@@ -8,25 +8,24 @@ The aim is to build flexible testable model of the game, and make IO layer as th
 
 ### Requests for the improvement. 
 
-1. Track `steps` and `pushes`.
-1. Implement mouse events and reaction on `MoveBoxStart Point`,
-    `MoveBoxEnd Point`, `MoveWorker Point` (this is pretty hard, 
-    since it requires path finding algorithm implemented for with
+1. ☑ Track `steps` and `pushes`.
+1. ☑ Implement mouse events and reaction on `MoveBox Point Point`, `MoveWorker Point`
+    (this is pretty hard, since it requires path finding algorithm implemented for with
     pushes or steps optimization).
-1. Replays and stored solutions.
-1. Solver, that tries to find the solution from the current position
+1. ☑ Parse command line options with `optparse-applicative`.
+1. ⍻ Replays and stored solutions.
+1. ⍻ Local storage to store solved/unsolved, progress and score board.
+1. ⍻ Solver, that tries to find the solution from the current position
     (should be cancellable).
-1. Deadlock detection (similar to the feature above, but can be done 
+1. ⍻ Deadlock detection (similar to the feature above, but can be done 
     with brute-force algorithm).
-1. Application configuration and monad transformers stack `ReaderT` with it.
-1. Include `RandomMonad` into the transformers stack to randomly select 
+1. ⍻ Application configuration and monad transformers stack `ReaderT` with it.
+1. ⍻ Include `RandomMonad` into the transformers stack to randomly select 
     the next level.
-1. Parse command line options with `optparse-applicative`.
-1. Implement a web version for the game, i.e. write the REST interface 
+1. ⍻ Implement a web version for the game, i.e. write the REST interface 
     using [servant](https://github.com/haskell-servant/servant).
-1. Write a frontend in ELM language.
-1. Write TUI using [brick](https://github.com/jtdaugherty/brick).
-1. Local storage to store solved/unsolved, progress and score board.
+1. ⍻ Write a frontend in ELM language.
+1. ⍻ Write TUI using [brick](https://github.com/jtdaugherty/brick).
 
 
 ### Where to get sokoban levels
@@ -58,4 +57,3 @@ D  ▼ ▽ ⬇ ⇩ ◪ ◒ ◓
 L  ◀ ◁ ⬅ ⇦ ⬕ ◐ ◑
 R  ▶ ▷ ➡ ⇨ ⬔ ◑ ◐
 ```
-
