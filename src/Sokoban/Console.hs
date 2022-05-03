@@ -24,7 +24,7 @@ import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import Debug.Trace                (traceM)
-import Sokoban.Debug              (getDebugModeM, setDebugModeM)
+import Sokoban.Debug              (setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
 import Sokoban.Model              (AnimationMode(..), GameState(..), SolverContext(..),
@@ -120,8 +120,7 @@ buildGameState args = do
 
 gameLoop :: GameState -> IO ()
 gameLoop gs0 = do
-  dm <- getDebugModeM
-  unless dm $ do
+  unless False $ do
     moveCursorToOrigin
     render gs0
   key <- getKey
@@ -403,8 +402,9 @@ runTest = do
   render gs
   let x =
         runST $ do
-          hm <- HM.new
-          let ctx = SolverContext hm (gs ^. levelState . height) (gs ^. levelState . width)
+          mc <- HM.new
+          pc <- HM.new
+          let ctx = SolverContext mc pc (gs ^. levelState . height) (gs ^. levelState . width)
           solver <- buildMoveSolver ctx []
           area <- evalStateT (breadFirstFind solver (Point 2 1)) gs
           traceM [qm| area={area} |]
