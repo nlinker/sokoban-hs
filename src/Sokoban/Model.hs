@@ -183,6 +183,14 @@ runStep action = do
 
 resetView :: MonadState GameState m => Action -> m ()
 resetView action = do
+  -- now compare the sets and check the game completion
+  ls <- use levelState
+  if ls ^. goals == ls ^. boxes
+    then do
+      levelState . isComplete .= True
+      viewState . doClearScreen .= True
+      viewState . message .= T.pack "Level complete!"
+    else levelState . isComplete .= False
   case action of
     NextLevel -> viewState . doClearScreen .= True
     PrevLevel -> viewState . doClearScreen .= True
@@ -199,14 +207,6 @@ resetView action = do
       viewState . destinations .= S.empty
       complete <- use (levelState . isComplete)
       unless complete $ viewState . message %= \msg -> T.replicate (T.length msg) " "
-  -- now compare the sets and check the game completion
-  ls <- use levelState
-  if ls ^. goals == ls ^. boxes
-    then do
-      levelState . isComplete .= True
-      viewState . doClearScreen .= True
-      viewState . message .= T.pack "Level complete!"
-    else levelState . isComplete .= False
 
 toggleDebugMode :: MonadState GameState m => m ()
 toggleDebugMode = do
