@@ -19,7 +19,6 @@ library:
     - Sokoban.Parser
     - Sokoban.Resources
     - Sokoban.Solver
-    - Sokoban.Memo
     - Sokoban.Debug
     - Helper
   other-modules:
