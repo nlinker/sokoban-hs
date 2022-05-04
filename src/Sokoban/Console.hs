@@ -330,8 +330,8 @@ render gs = do
     colorStr color selected str = do
       setSGR $
         if selected
-          then [SetColor Foreground Vivid color, SetColor Background Dull Black, SetBlinkSpeed SlowBlink]
-          else [SetColor Foreground Vivid color, SetColor Background Dull Black]
+          then [SetColor Foreground Vivid color, SetBlinkSpeed SlowBlink]
+          else [SetColor Foreground Vivid color]
       putStr str
       setSGR []
       putStr ""
