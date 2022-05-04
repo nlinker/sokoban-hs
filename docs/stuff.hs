@@ -665,4 +665,32 @@ trace act sql =
               Nothing -> hPutStrLn stderr s
               Just f  -> appendFile f s
 
+runTest :: IO ()
+runTest = do
+  gs <- buildGameState []
+  render gs
+  let x =
+        runST $ do
+          mc <- HM.new
+          pc <- HM.new
+          let ctx = SolverContext mc pc (gs ^. levelState . height) (gs ^. levelState . width)
+          solver <- buildMoveSolver ctx []
+          area <- evalStateT (breadFirstFind solver (Point 2 1)) gs
+          traceM [qm| area={area} |]
+          return area
+  putStrLn [qm| x={x} |]
+
+  let areas =
+        runST $ do
+          pc <- HM.new
+          let ctx = SolverContext pc m n
+          forM sources $ \src -> do
+            pushSolver <- buildPushSolver ctx
+            area <- flip evalStateT gs $ breadFirstFind pushSolver src
+            dm <- getDebugModeM
+            when dm $ do
+              pcSize <- HM.foldM (\a _ _ -> return $ a + 1) 0 pc
+              traceM [qm| pcSize={pcSize} |]
+            return area
+
 -}

@@ -121,8 +121,7 @@ data FlatLevelState =
 
 data SolverContext m =
   SolverContext
-    { _msCache   :: HM.MHashMap (PrimState m) [Point] (AStarSolver m Point)
-    , _pathCache :: HM.MHashMap (PrimState m) (Point, Point) [Point]
+    { _pathCache :: HM.MHashMap (PrimState m) (Point, Direction, Point, Point) [Point]
     , _cHeight   :: Int
     , _cWidth    :: Int
     }
@@ -183,8 +182,9 @@ runStep action = do
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()
-resetView action = do
+resetView action
   -- now compare the sets and check the game completion
+ = do
   ls <- use levelState
   if ls ^. goals == ls ^. boxes
     then do
@@ -353,9 +353,8 @@ moveWorkerAlongPath dst = do
   let n = gs ^. levelState . width
   let dirs =
         runST $ do
-          mc <- HM.new -- :: m (HM.MHashMap (PrimState m) [Point] (AStarSolver m Point))
-          pc <- HM.new -- :: m (HM.MHashMap (PrimState m) (Point, Point) [Point])
-          let ctx = SolverContext mc pc m n
+          pc <- HM.new
+          let ctx = SolverContext pc m n
           solver <- buildMoveSolver ctx []
           flip evalStateT gs $ aStarFind solver src dst (== dst)
   diffs' <- sequenceA <$> mapM doMove (pathToDirections dirs)
@@ -376,15 +375,17 @@ computeWorkerReachability = do
   area <- S.delete w <$> findWorkerArea w
   viewState . destinations .= area
   where
-    findWorkerArea :: forall m. MonadState GameState m => Point -> m (S.HashSet Point)
+    findWorkerArea ::
+         forall m. MonadState GameState m
+      => Point
+      -> m (S.HashSet Point)
     findWorkerArea s = do
       gs <- get
       let m = gs ^. levelState . height
       let n = gs ^. levelState . width
       return $ runST $ do
-        mc <- HM.new
         pc <- HM.new
-        let ctx = SolverContext mc pc m n
+        let ctx = SolverContext pc m n
         moveSolver <- buildMoveSolver ctx []
         area <- flip evalStateT gs $ breadFirstFind moveSolver s
         return $ S.fromList area
@@ -403,14 +404,13 @@ computeBoxReachability box = do
       let m = gs ^. levelState . height
       let n = gs ^. levelState . width
       sources <- findBoxDirections s
-      areas <-
-        forM sources $ \src ->
-          return $ runST $ do
-            mc <- HM.new
-            pc <- HM.new
-            let ctx = SolverContext mc pc m n
-            pushSolver <- buildPushSolver ctx
-            flip evalStateT gs $ breadFirstFind pushSolver src
+      let areas =
+            runST $ do
+              pc <- HM.new
+              let ctx = SolverContext pc m n
+              forM sources $ \src -> do
+                pushSolver <- buildPushSolver ctx
+                flip evalStateT gs $ breadFirstFind pushSolver src
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
 
@@ -455,9 +455,8 @@ moveBoxesByWorker src dst = do
           return $ runST $ do
             let dst = PD t D []
             let stopCond (PD p _ _) = p == t
-            mc <- HM.new
             hm <- HM.new
-            let ctx = SolverContext mc hm m n
+            let ctx = SolverContext hm m n
             pushSolver <- buildPushSolver ctx
             path <- flip evalStateT gs $ aStarFind pushSolver src dst stopCond
             return $ pushPathToDirections path
@@ -498,9 +497,8 @@ findBoxDirections box = do
   let w = gs ^. levelState . worker
   let paths =
         runST $ do
-          mc <- HM.new
           hm <- HM.new
-          let ctx = SolverContext mc hm m n
+          let ctx = SolverContext hm m n
           moveSolver <- buildMoveSolver ctx [box]
           flip evalStateT gs $ do
             let isAccessible p = isEmptyOrGoal <$> getCell p
@@ -536,9 +534,10 @@ buildMoveSolver ctx walls = do
       }
   where
     neighbors :: (MonadState GameState n) => Point -> n [Point]
-    neighbors p0 = do
-      let --isAccessible :: Point -> StateT GameState m Bool
-          isAccessible p =
+    neighbors p0
+          --isAccessible :: Point -> StateT GameState m Bool
+     = do
+      let isAccessible p =
             if p `elem` walls
               then return False
               else isEmptyOrGoal <$> getCell p
@@ -572,8 +571,17 @@ buildPushSolver ctx = do
   where
     neighbors (PD p0 d0 _ds0) = do
       moveSolver <- lift $ buildMoveSolver ctx [p0]
+      -- let myFind src dst = aStarFind moveSolver src dst (== dst) -- no caching variant
+      let myFind src dst = do
+            let pc = ctx ^. pathCache
+            path' <- HM.lookup pc (p0, d0, src, dst)
+            case path' of
+              Just path -> return path
+              Nothing -> do
+                path <- aStarFind moveSolver src dst (== dst)
+                HM.insert pc (p0, d0, src, dst) path
+                return path
       let isAccessible p = isEmptyOrGoal <$> getCell p
-      let myFind src dst = aStarFind moveSolver src dst (== dst)
       let tryBuildPath src dst = do
             accessible <- isAccessible dst
             if accessible

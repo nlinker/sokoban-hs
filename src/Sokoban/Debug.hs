@@ -1,11 +1,10 @@
-{-# LANGUAGE Strict #-}
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE Strict        #-}
 
 module Sokoban.Debug where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
 import System.IO.Unsafe        (unsafePerformIO)
-
--- (setDebugModeM, getDebugModeM)
 
 debugMode :: MVar Bool
 {-# NOINLINE debugMode #-}
@@ -23,3 +22,15 @@ getDebugModeM :: Applicative f => f Bool
 getDebugModeM =
   let dm = unsafePerformIO $ readMVar debugMode
    in pure dm
+
+-- trace to file, not console
+{-# NOINLINE traceFM #-}
+traceFM :: Applicative f => String -> f ()
+traceFM msg = pure $ traceF msg ()
+  where
+    file = "trace.log" :: FilePath
+    traceF :: String -> a -> a
+    traceF msg expr =
+      unsafePerformIO $ do
+        appendFile file (msg <> "\n")
+        return expr

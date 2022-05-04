@@ -105,7 +105,7 @@ makePrisms ''PD
 makeLenses ''PPDD
 
 instance Show PD where
-  show (PD (Point i j) d dirs) = "(" <> show i <> " " <> show j <> " " <> show d <> " " <> show dirs <> ")"
+  show (PD (Point i j) d dirs) = "(" <> show i <> "∙" <> show j <> " " <> show d <> " " <> show dirs <> ")"
 
 instance Ord PD where
   compare (PD p1 d1 ds1) (PD p2 d2 ds2) = compare (p1, d1, ds1) (p2, d2, ds2)

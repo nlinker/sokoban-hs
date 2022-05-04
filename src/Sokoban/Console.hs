@@ -17,33 +17,29 @@ import Control.Concurrent         (threadDelay)
 import Control.Exception          (finally)
 import Control.Lens               (use, (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, unless, when)
-import Control.Monad.ST.Strict    (runST)
-import Control.Monad.State.Strict (MonadState, evalStateT, execState, runState)
+import Control.Monad.State.Strict (MonadState, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
-import Debug.Trace                (traceM)
 import Sokoban.Debug              (setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
                                    isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model              (AnimationMode(..), GameState(..), SolverContext(..),
-                                   ViewState(..), animateRequired, animationMode, buildMoveSolver,
+import Sokoban.Model              (AnimationMode(..), GameState(..),
+                                   ViewState(..), animateRequired, animationMode,
                                    cells, clicks, destinations, direction, doClearScreen, doMove,
                                    getCell, height, id, initialLevelState, isComplete, levelState,
                                    levelState, message, moveCount, pushCount, stats, step,
                                    undoIndex, undoMove, undoStack, viewState, width, _UndoItem)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection)
-import Sokoban.Solver             (breadFirstFind)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import Text.InterpolatedString.QM (qm, qms)
+import Text.InterpolatedString.QM (qms)
 import Text.Read                  (readMaybe)
 
-import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet               as S
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
@@ -395,18 +391,3 @@ runTestPerf = do
   let gs8 = step gs7 (A.SelectBox (Point 7 3))
   let gs9 = step gs8 (A.MoveBoxes [Point 7 3] [Point 5 2])
   render gs9
-
-runTest :: IO ()
-runTest = do
-  gs <- buildGameState []
-  render gs
-  let x =
-        runST $ do
-          mc <- HM.new
-          pc <- HM.new
-          let ctx = SolverContext mc pc (gs ^. levelState . height) (gs ^. levelState . width)
-          solver <- buildMoveSolver ctx []
-          area <- evalStateT (breadFirstFind solver (Point 2 1)) gs
-          traceM [qm| area={area} |]
-          return area
-  putStrLn [qm| x={x} |]
