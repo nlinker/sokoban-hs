@@ -38,6 +38,22 @@ The aim is to build flexible testable model of the game, and make IO layer as th
 ### Info on sokoban solvers
 
 http://sokobano.de/wiki/index.php?title=Solver
+https://www.sokoban-online.de/
+
+### Haskell on SO
+
+https://stackoverflow.com/questions/51874362/combine-st-and-list-monads-in-haskell
+https://stackoverflow.com/questions/11662696/haskell-map-runst
+https://stackoverflow.com/questions/12468622/how-does-the-st-monad-work
+https://stackoverflow.com/questions/9468963/runst-and-function-composition
+https://stackoverflow.com/questions/48727762/what-is-an-elegant-idiom-for-a-lexicographic-ord-instance
+https://stackoverflow.com/questions/3651144/comparing-lists-in-haskell-or-more-specifically-what-is-lexicographical-order
+https://stackoverflow.com/questions/38629806/get-the-minimum-value
+https://stackoverflow.com/questions/18006845/function-in-haskell-that-like-catmaybes-but-having-type-maybe-a-maybe-a
+https://stackoverflow.com/questions/27399696/filter-positions-in-a-list-haskell
+
+
+
 
 ### Useful information
 
@@ -46,11 +62,14 @@ http://sokobano.de/wiki/index.php?title=Solver
 - [Handling Control-C in Haskell](https://neilmitchell.blogspot.com/2015/05/handling-control-c-in-haskell.html?m=1)
 - [STMonadTrans](https://hackage.haskell.org/package/STMonadTrans) A monad transformer version of the ST monad
 - [Sokolution author's thoughts](http://sokobano.de/wiki/index.php?title=Sokoban_solver_%22scribbles%22_by_Florent_Diedler_about_the_Sokolution_solver)
+- [Mutable hashtables library](https://hackage.haskell.org/package/hashtables-1.2.3.4) and its author announcing it
+
 - Unicode symbols to try for walls, goals, boxes and worker:
 
 ```
 ⬛ ■ ◼ ◾ ▪ □ ⬚ ▫ ◻ ❎ ⬛ ⬜ ▢ ▣ ◽ ❑ ❒ ❏ ❐ ▩ ▦ ▧ ▨ ⊞ ⊡ ☒
 ⊕ ⊗ ✪ ⊙ ⦾ ⦿ ⊚ ⊛ ○ ◌ ● ◯ ⬤ ⌾ ⍟ ⨯ ⁘
+🦄
 
 U  ▲ △ ⬆ ⇧ ◩ ◓ ◒
 D  ▼ ▽ ⬇ ⇩ ◪ ◒ ◓

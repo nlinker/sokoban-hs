@@ -227,6 +227,7 @@ restartLevel = do
       levelState . cells .= originCells
       levelState . undoStack .= []
       levelState . undoIndex .= -1
+      levelState . stats .= Stats 0 0
 
 switchLevel :: MonadState GameState m => Int -> m ()
 switchLevel di = do

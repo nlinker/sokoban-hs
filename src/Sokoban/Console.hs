@@ -128,7 +128,9 @@ gameLoop gs0 = do
             "\ESC[C" -> step gs0 A.Right
             "\ESC[D" -> step gs0 A.Left
             "\ESC[5~" -> step gs0 A.PrevLevel
+            "[" -> step gs0 A.PrevLevel
             "\ESC[6~" -> step gs0 A.NextLevel
+            "]" -> step gs0 A.NextLevel
             "u" -> step gs0 A.Undo
             "i" -> step gs0 A.Redo
             "r" -> step gs0 A.Restart
