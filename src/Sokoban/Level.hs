@@ -84,13 +84,13 @@ data PD =
   deriving (Eq, Generic, Hashable)
 
 -- double directed point, we can use this for box moves
-data PPDD =
-  PPDD
-    { _pointFst   :: Point
-    , _pointSnd   :: Point
-    , _dirFst     :: Direction
-    , _dirSnd     :: Direction
-    , _directions :: [Direction]
+data PPD =
+  PPD
+    { _ppdFst   :: Point
+    , _ppdSnd   :: Point
+    , _ppdDir   :: Direction
+    , _ppdIdx   :: Int
+    , _ppdDirs :: [Direction]
     }
   deriving (Eq, Generic, Hashable)
 
@@ -102,7 +102,7 @@ makePrisms ''Point
 
 makePrisms ''PD
 
-makeLenses ''PPDD
+makeLenses ''PPD
 
 instance Show PD where
   show (PD (Point i j) d dirs) = "(" <> show i <> "∙" <> show j <> " " <> show d <> " " <> show dirs <> ")"
@@ -110,16 +110,13 @@ instance Show PD where
 instance Ord PD where
   compare (PD p1 d1 ds1) (PD p2 d2 ds2) = compare (p1, d1, ds1) (p2, d2, ds2)
 
-instance Show PPDD where
+instance Show PPD where
   show pd =
-    "(" <> show (pd ^. pointFst) <> " " <> show (pd ^. pointSnd) <> " " <> show (pd ^. dirFst) <> " " <>
-    show (pd ^. dirSnd) <>
-    " " <>
-    show (pd ^. directions) <>
-    ")"
+    "(" <> show (pd ^. ppdFst) <> " " <> show (pd ^. ppdSnd) <> " " <> show (pd ^. ppdDir) <> show (pd ^. ppdIdx) <>
+    " " <> show (pd ^. ppdDirs) <> ")"
 
-instance Ord PPDD where
-  compare = compare `on` (_pointFst &&& _pointSnd &&& _dirFst &&& _dirSnd)
+instance Ord PPD where
+  compare = compare `on` (_ppdFst &&& _ppdSnd &&& _ppdDir &&& _ppdIdx)
   -- elegant variation for
   --   compare pd1 pd2 = compare
   --     (pd1 ^. pointFst, pd1 ^. pointSnd, pd1 ^. dirFst, pd1 ^. dirSnd)
