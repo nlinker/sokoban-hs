@@ -600,25 +600,14 @@ buildPushSolver2 ::
 buildPushSolver2 ctx = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
-  let p2int (PPD (Point i1 j1) (Point i2 j2) d idx _) =
-        let
-         in ((i1 * n + j1) * m * n + (i2 * n + j2)) * 8 + fromIntegral (w8FromDirection d) * 2 + idx
-  let int2p k =
-        let kdir = k `mod` 4
-            k4 = k `div` 4
-            p1 = Point (k4 `div` n) (k4 `mod` n)
-            p2 = Point (k4 `div` n) (k4 `mod` n)
-            d = w8ToDirection (fromIntegral kdir)
-            i = k4 `div` 2
-         in PPD  p1 p2 d i  []
-  let nodesBound = m * n * 4
+  let nodesBound = m * n * m * n * 8
   return $
     AStarSolver
       { neighbors = neighbors
       , distance = distance
       , heuristic = heuristic
-      , projection = p2int
-      , injection = int2p
+      , projection = ppd2kMN m n
+      , injection = k2ppdMN m n
       , nodesBound = nodesBound
       }
   where
