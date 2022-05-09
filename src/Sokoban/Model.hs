@@ -554,19 +554,14 @@ buildPushSolver ::
 buildPushSolver ctx = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
-  let p2int (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
-  let int2p k =
-        let kdir = k `mod` 4
-            k4 = k `div` 4
-         in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
   let nodesBound = m * n * 4
   return $
     AStarSolver
       { neighbors = neighbors
       , distance = distance
       , heuristic = heuristic
-      , projection = p2int
-      , injection = int2p
+      , projection = pd2kN n
+      , injection = k2pdN n
       , nodesBound = nodesBound
       }
   where
@@ -600,8 +595,6 @@ buildPushSolver ctx = do
       return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2) + length ds1
     distance np p0 = fromEnum (np /= p0)
 
-
-
 buildPushSolver2 ::
      forall m. PrimMonad m
   => SolverContext m
@@ -610,13 +603,13 @@ buildPushSolver2 ctx = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
   let p2int (PPD (Point i1 j1) (Point i2 j2) d idx _) =
-        let   
+        let
          in ((i1 * n + j1) * m * n + (i2 * n + j2)) * 8 + fromIntegral (w8FromDirection d) * 2 + idx
   let int2p k =
         let kdir = k `mod` 4
             k4 = k `div` 4
             p1 = Point (k4 `div` n) (k4 `mod` n)
-            p2 = Point (k4 `div` n) (k4 `mod` n) 
+            p2 = Point (k4 `div` n) (k4 `mod` n)
             d = w8ToDirection (fromIntegral kdir)
             i = k4 `div` 2
          in PPD  p1 p2 d i  []
@@ -800,11 +793,11 @@ pathToDirections ps = reverse $ convert ps []
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
 
-point2kN :: Int -> PD -> Int
-point2kN n (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
+pd2kN :: Int -> PD -> Int
+pd2kN n (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
 
-k2pointN :: Int -> Int -> PD
-k2pointN n k =
+k2pdN :: Int -> Int -> PD
+k2pdN n k =
       let kdir = k `mod` 4
           k4 = k `div` 4
        in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
