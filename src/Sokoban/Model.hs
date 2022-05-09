@@ -121,7 +121,7 @@ data FlatLevelState =
 
 data SolverContext m =
   SolverContext
-    { _pathCache :: HM.MHashMap (PrimState m) (Point, Direction, Point, Point) [Point]
+    { _pathCache :: HM.MHashMap (PrimState m) ([Point], Direction, Point, Point) [Point]
     , _cHeight   :: Int
     , _cWidth    :: Int
     }
@@ -571,18 +571,16 @@ buildPushSolver ctx dst = do
       , nodesBound = nodesBound
       }
   where
-    neighbors (PD p0 d0 _ds0)
-      -- let myFind src dst = aStarFind moveSolver src dst (== dst) -- no caching variant
-     = do
+    neighbors (PD p0 d0 _ds0) = do
       let myFind src dst = do
             moveSolver <- lift $ buildMoveSolver ctx dst [p0]
             let pc = ctx ^. pathCache
-            path' <- HM.lookup pc (p0, d0, src, dst)
+            path' <- HM.lookup pc ([p0], d0, src, dst)
             case path' of
               Just path -> return path
               Nothing -> do
                 path <- aStarFind moveSolver src
-                HM.insert pc (p0, d0, src, dst) path
+                HM.insert pc ([p0], d0, src, dst) path
                 return path
       let isAccessible p = isEmptyOrGoal <$> getCell p
       let tryBuildPath src dst = do
@@ -614,7 +612,7 @@ buildPushSolver2 ::
 buildPushSolver2 ctx _dst2 = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
-  let nodesBound = m * n * m * n * 8
+  let nodesBound = 2 * m * n * m * n * 8
   return $
     AStarSolver
       { neighbors = neighbors
@@ -626,7 +624,35 @@ buildPushSolver2 ctx _dst2 = do
       , nodesBound = nodesBound
       }
   where
-    neighbors = undefined
+    neighbors :: PPD -> StateT GameState m [PPD]
+    neighbors (PPD p1 p2 d0 _i _dirs) = do
+      let walls = [p1, p2]
+      let myFind src dst = do
+            moveSolver <- lift $ buildMoveSolver ctx dst walls
+            let pc = ctx ^. pathCache
+            path' <- HM.lookup pc (walls, d0, src, dst)
+            case path' of
+              Just path -> return path
+              Nothing -> do
+                path <- aStarFind moveSolver src
+                HM.insert pc (walls, d0, src, dst) path
+                return path
+      let isAccessible p = isEmptyOrGoal <$> getCell p
+      let tryBuildPath :: Point -> Point -> StateT GameState m [Direction]
+          tryBuildPath src dst = do
+            accessible <- isAccessible dst
+            if accessible
+              then pathToDirections <$> myFind src dst
+              else return []
+      -- cont is the "continue push in the direction d0" neighbor
+      -- src is the position of the worker for the push
+      -- directed is the same box but with changed push direction
+      -- cont <- filterM (\(PD p _ _) -> isAccessible p) [PD (movePoint p0 d0) d0 [d0]]
+      -- let src = movePoint p0 (opposite d0)
+      -- let otherDirs = filter (/= d0) [U, D, L, R]
+      -- paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
+      -- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+      return undefined
     distance = undefined
     heuristic = undefined
     stopCond = undefined
