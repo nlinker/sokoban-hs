@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Sokoban.ModelSpec where
@@ -12,7 +13,7 @@ import Control.Monad.State.Strict (StateT, evalStateT)
 import Data.Maybe                 (fromJust)
 import Sokoban.Console            (interpretClick, render)
 import Sokoban.Level              (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal,
-                                   levels, movePoint, toCell)
+                                   levels, movePoint, toCell, PPD(..), w8FromDirection, w8ToDirection)
 import Sokoban.Model              (AnimationMode(AnimationDo), GameState(..), ViewState(..), clicks,
                                    getCell, height, initialLevelState, levelState, pathToDirections,
                                    viewState, width, worker)
@@ -23,6 +24,8 @@ import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
 
 import Test.Hspec
+import Text.InterpolatedString.QM (qm)
+import Debug.Trace (traceM)
 
 gs :: GameState
 gs =
@@ -103,7 +106,16 @@ spec = do
     it "unbox Cell (from . to)" $ do
       let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
       map (fromCell . toCell) codes `shouldBe` codes
+
+  describe "PPD <-> Int mapping" $
+    it "i2ppd . ppd2i shouldBe id " $ do
+      traceM [qm| {m} * {n} = {m * n}|]
+      let codes = [0..19207]
+      map (ppd2i . i2ppd) codes `shouldBe` codes
+
   where
+    ppd2i = ppd2kMN m n
+    i2ppd = k2ppdMN m n
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     breadFirstTest :: Point -> [Point]
     breadFirstTest src = runIdentity $ return $ runST $ evalStateT (breadFirstFind solver src) gs

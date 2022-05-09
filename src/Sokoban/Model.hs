@@ -31,7 +31,7 @@ import Data.Foldable              (foldl', minimumBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
-import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..),
+import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
                                    levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
@@ -600,6 +600,41 @@ buildPushSolver ctx = do
       return $ abs (i1 - i2) + abs (j1 - j2) + fromEnum (d1 /= d2) + length ds1
     distance np p0 = fromEnum (np /= p0)
 
+
+
+buildPushSolver2 ::
+     forall m. PrimMonad m
+  => SolverContext m
+  -> m (AStarSolver (StateT GameState m) PPD)
+buildPushSolver2 ctx = do
+  let m = ctx ^. cHeight
+  let n = ctx ^. cWidth
+  let p2int (PPD (Point i1 j1) (Point i2 j2) d idx _) =
+        let   
+         in ((i1 * n + j1) * m * n + (i2 * n + j2)) * 8 + fromIntegral (w8FromDirection d) * 2 + idx
+  let int2p k =
+        let kdir = k `mod` 4
+            k4 = k `div` 4
+            p1 = Point (k4 `div` n) (k4 `mod` n)
+            p2 = Point (k4 `div` n) (k4 `mod` n) 
+            d = w8ToDirection (fromIntegral kdir)
+            i = k4 `div` 2
+         in PPD  p1 p2 d i  []
+  let nodesBound = m * n * 4
+  return $
+    AStarSolver
+      { neighbors = neighbors
+      , distance = distance
+      , heuristic = heuristic
+      , projection = p2int
+      , injection = int2p
+      , nodesBound = nodesBound
+      }
+  where
+    neighbors = undefined
+    distance = undefined
+    heuristic = undefined
+
 toDirection :: Action -> Direction
 toDirection a =
   case a of
@@ -764,3 +799,31 @@ pathToDirections ps = reverse $ convert ps []
       case deriveDir p1 p2 of
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
+
+point2kN :: Int -> PD -> Int
+point2kN n (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)
+
+k2pointN :: Int -> Int -> PD
+k2pointN n k =
+      let kdir = k `mod` 4
+          k4 = k `div` 4
+       in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
+
+ppd2kMN :: Int -> Int -> PPD -> Int
+ppd2kMN m n (PPD (Point i1 j1) (Point i2 j2) d idx _) =
+  let k1 = i1 * n + j1
+      k2 = i2 * n + j2
+      mn = m * n
+   in (k1 * mn + k2) * 8 + fromIntegral (w8FromDirection d) * 2 + idx
+
+k2ppdMN :: Int -> Int -> Int -> PPD
+k2ppdMN m n k =
+  let (kpp, kdi) = k `divMod` 8
+      (kd, ki) = kdi `divMod` 2
+      mn = m * n
+      (kpp1, kpp2) = kpp `divMod` mn
+      p1 = Point (kpp1 `div` n) (kpp1 `mod` n)
+      p2 = Point (kpp2 `div` n) (kpp2 `mod` n)
+      d = w8ToDirection (fromIntegral kd)
+      i = ki
+   in PPD p1 p2 d i []
