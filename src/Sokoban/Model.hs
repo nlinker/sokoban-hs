@@ -10,6 +10,7 @@
 {-# LANGUAGE Strict                #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeFamilies          #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
@@ -19,8 +20,8 @@ import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
 import Control.Arrow              (second)
-import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
-                                   (^.), _1, _2, _3)
+import Control.Lens               (Lens', ix, lens, use, (%=), (%~), (&), (+=), (-=), (.=), (.~),
+                                   (<>=), (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.Primitive    (PrimMonad(..), PrimState)
@@ -28,12 +29,14 @@ import Control.Monad.ST.Strict    (runST)
 import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
                                    lift, runState)
 import Data.Foldable              (foldl', minimumBy)
+import Data.List                  (nub)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
+                                   levels, movePoint, opposite, ppdFst, ppdSnd, w8FromDirection,
+                                   w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Text.InterpolatedString.QM (qm)
 
@@ -125,6 +128,7 @@ data SolverContext m =
     , _cHeight   :: Int
     , _cWidth    :: Int
     }
+  deriving (Show)
 
 makeLenses ''Diff
 
@@ -615,7 +619,7 @@ buildPushSolver2 ctx _dst2 = do
   let nodesBound = 2 * m * n * m * n * 8
   return $
     AStarSolver
-      { neighbors = neighbors
+      { neighbors = neighbors1
       , distance = distance
       , heuristic = heuristic
       , stopCond = stopCond
@@ -624,38 +628,70 @@ buildPushSolver2 ctx _dst2 = do
       , nodesBound = nodesBound
       }
   where
-    neighbors :: PPD -> StateT GameState m [PPD]
-    neighbors (PPD p1 p2 d0 _i _dirs) = do
-      let walls = [p1, p2]
-      let myFind src dst = do
-            moveSolver <- lift $ buildMoveSolver ctx dst walls
-            let pc = ctx ^. pathCache
-            path' <- HM.lookup pc (walls, d0, src, dst)
-            case path' of
-              Just path -> return path
-              Nothing -> do
-                path <- aStarFind moveSolver src
-                HM.insert pc (walls, d0, src, dst) path
-                return path
-      let isAccessible p = isEmptyOrGoal <$> getCell p
-      let tryBuildPath :: Point -> Point -> StateT GameState m [Direction]
-          tryBuildPath src dst = do
-            accessible <- isAccessible dst
-            if accessible
-              then pathToDirections <$> myFind src dst
-              else return []
-      -- cont is the "continue push in the direction d0" neighbor
-      -- src is the position of the worker for the push
-      -- directed is the same box but with changed push direction
-      -- cont <- filterM (\(PD p _ _) -> isAccessible p) [PD (movePoint p0 d0) d0 [d0]]
-      -- let src = movePoint p0 (opposite d0)
-      -- let otherDirs = filter (/= d0) [U, D, L, R]
-      -- paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
-      -- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
-      return undefined
     distance = undefined
     heuristic = undefined
     stopCond = undefined
+
+selector :: Functor f => (Point -> f Point) -> PPD -> f PPD
+selector f ppd@(PPD _ _ _ i _) = if i == 0 then ppdFst f ppd else ppdSnd f ppd
+
+isAccessible :: MonadState GameState m => Point -> m Bool
+isAccessible p = isEmptyOrGoal <$> getCell p
+
+isAccessibleGS :: PrimMonad m => GameState -> Point -> m Bool 
+isAccessibleGS gs p = evalStateT (isEmptyOrGoal <$> getCell p) gs
+
+mnGs :: GameState -> (Int, Int)
+mnGs gs = (gs ^. levelState . height, gs ^. levelState . width)
+
+ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
+ctxGs gs = do
+  hm <- HM.new
+  let (m, n) = mnGs gs
+  return $ SolverContext hm m n
+
+myFindGs :: PrimMonad m => GameState -> SolverContext m -> PPD -> Point -> Point -> m [Point]
+myFindGs gs ctx ppd src dst =  flip evalStateT gs $ myFind ctx ppd src dst
+
+myFind :: PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Point]
+myFind ctx ppd src dst = do
+  let (PPD p1 p2 d _i _dirs) = ppd 
+      walls = [p1, p2]
+  moveSolver <- lift $ buildMoveSolver ctx dst walls
+  let pc = ctx ^. pathCache
+  path' <- HM.lookup pc (walls, d, src, dst)
+  case path' of
+    Just path -> return path
+    Nothing -> do
+      path <- aStarFind moveSolver src
+      HM.insert pc (walls, d, src, dst) path
+      return path
+
+tryBuildPathGS :: PrimMonad m => GameState -> SolverContext m -> PPD -> Point -> Point -> m [Direction]
+tryBuildPathGS gs ctx ppd src dst = evalStateT (tryBuildPath ctx ppd src dst) gs
+
+tryBuildPath :: forall m . PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Direction]
+tryBuildPath ctx ppd src dst = do
+      accessible <- isAccessible dst
+      if accessible
+        then pathToDirections <$> myFind ctx ppd src dst
+        else return []
+  
+neighbors1 :: forall m . PrimMonad m => PPD -> StateT GameState m [PPD]
+neighbors1 (PPD p1 p2 d i _dirs) = do
+  -- cont is the "continue push in the direction d0" of the current i-th box
+  let contPPD = (\p -> p & selector %~ (`movePoint` d)) <$> [PPD p1 p2 d i [d]]
+  let cur = [p1, p2] !! i
+  let w = movePoint cur $ opposite d
+  
+  cont <- filterM (isAccessible . (^. selector)) contPPD
+  let neighs1 = nub $ map (movePoint p1) [U, D, L, R] <> map (movePoint p2) [U, D, L, R]
+  
+  -- let src = movePoint p0 (opposite d0)
+  -- let otherDirs = filter (/= d0) [U, D, L, R]
+  -- paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
+  -- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+  return undefined
 
 toDirection :: Action -> Direction
 toDirection a =

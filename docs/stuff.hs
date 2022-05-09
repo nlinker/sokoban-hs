@@ -693,4 +693,42 @@ runTest = do
               traceM [qm| pcSize={pcSize} |]
             return area
 
+
+selector :: Functor f => (Point -> f Point) -> PPD -> f PPD
+selector f ppd@(PPD _ _ _ i _) = if i == 0 then ppdFst f ppd else ppdSnd f ppd
+
+neighbors1 :: forall m . PrimMonad m => SolverContext m -> PPD -> StateT GameState m [PPD]
+neighbors1 ctx (PPD p1 p2 d i _dirs) = do
+  let walls = [p1, p2]
+  let myFind src dst = do
+        moveSolver <- lift $ buildMoveSolver ctx dst walls
+        let pc = ctx ^. pathCache
+        path' <- HM.lookup pc (walls, d, src, dst)
+        case path' of
+          Just path -> return path
+          Nothing -> do
+            path <- aStarFind moveSolver src
+            HM.insert pc (walls, d, src, dst) path
+            return path
+  let isAccessible p = isEmptyOrGoal <$> getCell p
+  let tryBuildPath :: Point -> Point -> StateT GameState m [Direction]
+      tryBuildPath src dst = do
+        accessible <- isAccessible dst
+        if accessible
+          then pathToDirections <$> myFind src dst
+          else return []
+  -- cont is the "continue push in the direction d0" of the current i-th box
+  let contPPD = (\p -> p & selector %~ (`movePoint` d)) <$> [PPD p1 p2 d i [d]]
+  let points = [p1, p2]
+  let curr = points !! i
+  let w = movePoint curr $ opposite d
+
+  cont <- filterM (isAccessible . (^. selector)) contPPD
+  let neighs1 = nub $ map (movePoint p1) [U, D, L, R] <> map (movePoint p2) [U, D, L, R]
+  -- let src = movePoint p0 (opposite d0)
+  -- let otherDirs = filter (/= d0) [U, D, L, R]
+  -- paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
+  -- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
+  return undefined
+
 -}
