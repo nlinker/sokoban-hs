@@ -521,16 +521,14 @@ buildMoveSolver ::
 buildMoveSolver ctx walls = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
-  let p2int (Point i j) = i * n + j
-  let int2p k = Point (k `div` n) (k `mod` n)
   let nodesBound = m * n * 2
   return $
     AStarSolver
       { neighbors = neighbors
       , distance = distance
       , heuristic = heuristic
-      , projection = p2int
-      , injection = int2p
+      , projection = point2kN n
+      , injection = k2pointN n
       , nodesBound = nodesBound
       }
   where
@@ -792,6 +790,12 @@ pathToDirections ps = reverse $ convert ps []
       case deriveDir p1 p2 of
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
+
+point2kN :: Int -> Point -> Int
+point2kN n (Point i j) = i * n + j
+
+k2pointN :: Int -> Int -> Point
+k2pointN n k = Point (k `div` n) (k `mod` n)
 
 pd2kN :: Int -> PD -> Int
 pd2kN n (PD (Point i j) d _) = (i * n + j) * 4 + fromIntegral (w8FromDirection d)

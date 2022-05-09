@@ -12,20 +12,21 @@ import Control.Monad.State        (evalState)
 import Control.Monad.State.Strict (StateT, evalStateT)
 import Data.Maybe                 (fromJust)
 import Sokoban.Console            (interpretClick, render)
-import Sokoban.Level              (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal,
-                                   levels, movePoint, toCell, PPD(..), w8FromDirection, w8ToDirection)
+import Sokoban.Level              (Cell(..), Direction(..), PPD(..), Point(..), fromCell,
+                                   isEmptyOrGoal, levels, movePoint, toCell, w8FromDirection,
+                                   w8ToDirection)
 import Sokoban.Model              (AnimationMode(AnimationDo), GameState(..), ViewState(..), clicks,
-                                   getCell, height, initialLevelState, levelState, pathToDirections,
-                                   viewState, width, worker)
+                                   getCell, height, initialLevelState, k2pdN, k2ppdMN, levelState,
+                                   pathToDirections, pd2kN, ppd2kMN, viewState, width, worker)
 import Sokoban.Resources          (yoshiroAutoCollection)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 
 import qualified Data.HashSet  as S
 import qualified Sokoban.Model as A (Action(..))
 
+import Debug.Trace                (traceM)
 import Test.Hspec
 import Text.InterpolatedString.QM (qm)
-import Debug.Trace (traceM)
 
 gs :: GameState
 gs =
@@ -106,16 +107,15 @@ spec = do
     it "unbox Cell (from . to)" $ do
       let codes = [4, 5, 6, 7, 12, 13, 14, 15, 8, 1, 9, 0, 16]
       map (fromCell . toCell) codes `shouldBe` codes
-
-  describe "PPD <-> Int mapping" $
-    it "i2ppd . ppd2i shouldBe id " $ do
-      traceM [qm| {m} * {n} = {m * n}|]
-      let codes = [0..19207]
-      map (ppd2i . i2ppd) codes `shouldBe` codes
-
+  describe "* <-> Int mapping" $ do
+    traceM [qm|  m * n = {m} * {n} = {m * n}|]
+    it "PD <-> Int mapping " $ do
+      let codes = [0 .. 19207]
+      map (pd2kN n . k2pdN n) codes `shouldBe` codes
+    it "k2ppd . ppd2k shouldBe id " $ do
+      let codes = [0 .. 7 * 7 * 7 * 7 * 8 - 1]
+      map (ppd2kMN m n . k2ppdMN m n) codes `shouldBe` codes
   where
-    ppd2i = ppd2kMN m n
-    i2ppd = k2ppdMN m n
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     breadFirstTest :: Point -> [Point]
     breadFirstTest src = runIdentity $ return $ runST $ evalStateT (breadFirstFind solver src) gs
