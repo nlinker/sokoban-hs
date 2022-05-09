@@ -29,7 +29,7 @@ import Control.Monad.ST.Strict    (runST)
 import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
                                    lift, runState)
 import Data.Foldable              (foldl', minimumBy)
-import Data.List                  (nub)
+import Data.List                  (nub, nubBy)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
@@ -635,12 +635,6 @@ buildPushSolver2 ctx _dst2 = do
 selector :: Functor f => (Point -> f Point) -> PPD -> f PPD
 selector f ppd@(PPD _ _ _ i _) = if i == 0 then ppdFst f ppd else ppdSnd f ppd
 
-isAccessible :: MonadState GameState m => Point -> m Bool
-isAccessible p = isEmptyOrGoal <$> getCell p
-
-isAccessibleGS :: PrimMonad m => GameState -> Point -> m Bool 
-isAccessibleGS gs p = evalStateT (isEmptyOrGoal <$> getCell p) gs
-
 mnGs :: GameState -> (Int, Int)
 mnGs gs = (gs ^. levelState . height, gs ^. levelState . width)
 
@@ -649,9 +643,6 @@ ctxGs gs = do
   hm <- HM.new
   let (m, n) = mnGs gs
   return $ SolverContext hm m n
-
-myFindGs :: PrimMonad m => GameState -> SolverContext m -> PPD -> Point -> Point -> m [Point]
-myFindGs gs ctx ppd src dst =  flip evalStateT gs $ myFind ctx ppd src dst
 
 myFind :: PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Point]
 myFind ctx ppd src dst = do
@@ -667,31 +658,82 @@ myFind ctx ppd src dst = do
       HM.insert pc (walls, d, src, dst) path
       return path
 
-tryBuildPathGS :: PrimMonad m => GameState -> SolverContext m -> PPD -> Point -> Point -> m [Direction]
-tryBuildPathGS gs ctx ppd src dst = evalStateT (tryBuildPath ctx ppd src dst) gs
-
 tryBuildPath :: forall m . PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Direction]
 tryBuildPath ctx ppd src dst = do
       accessible <- isAccessible dst
       if accessible
         then pathToDirections <$> myFind ctx ppd src dst
         else return []
-  
+
+isAccessible :: MonadState GameState m => Point -> m Bool
+isAccessible p = isEmptyOrGoal <$> getCell p
+
 neighbors1 :: forall m . PrimMonad m => PPD -> StateT GameState m [PPD]
 neighbors1 (PPD p1 p2 d i _dirs) = do
   -- cont is the "continue push in the direction d0" of the current i-th box
   let contPPD = (\p -> p & selector %~ (`movePoint` d)) <$> [PPD p1 p2 d i [d]]
   let cur = [p1, p2] !! i
   let w = movePoint cur $ opposite d
-  
   cont <- filterM (isAccessible . (^. selector)) contPPD
-  let neighs1 = nub $ map (movePoint p1) [U, D, L, R] <> map (movePoint p2) [U, D, L, R]
   
   -- let src = movePoint p0 (opposite d0)
   -- let otherDirs = filter (/= d0) [U, D, L, R]
   -- paths <- mapM (\d -> PD p0 d <$> tryBuildPath src (movePoint p0 $ opposite d)) otherDirs
   -- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
   return undefined
+
+{-
+import Control.Lens
+import Data.List
+import Control.Monad.State.Strict
+
+gs0 <- buildGameState []
+gs1 = step gs0 (MoveWorker (Point 7 4))
+gs = eraseBoxes [(Point 7 3), (Point 11 2)] gs1
+ctx <- ctxGs gs1
+ppd = PPD (Point 7 3) (Point 11 2) L 0 []
+(PPD p1 p2 d i _dirs) = ppd
+cur = [p1, p2] !! i
+w = movePoint cur $ opposite d
+srcs1 = nubBy (\(_,a,_,_) (_,b,_,_) -> a == b) $ map (\d -> (p1, movePoint p1 d, d, 0)) [U, D, L, R] <> map (\d -> (p2, movePoint p2 d, d, 1)) [U, D, L, R]
+srcs2 <- flip evalStateT gs $ filterM (\(_, p, _, _) -> isAccessible p) srcs1
+paths <- flip evalStateT gs $ mapM (\(q, p, d, i) -> (q, p, d, i,) <$> tryBuildPath ctx ppd w p) srcs2
+shifts = map (\(q, p, d, i, dirs) -> (q, p, d, i, movePoint q (opposite d), dirs <> [opposite d])) paths
+dests <- flip evalStateT gs $ filterM (\(_,_,_,_,p,_) -> isAccessible p) shifts
+
+-}
+
+{-[
+8∙3,  0, [D,L]
+7∙2,  0, [D,L,L,U]
+7∙4,  0, []
+10∙2, 1, [D,L,L,D,D]
+12∙2, 1, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L]
+11∙1, 1, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U]
+11∙3, 1, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L]
+
+[
+8∙3,  D, 0, 7∙3,  [D,L,U]
+7∙2,  L, 0, 7∙3,  [D,L,L,U,R]
+7∙4,  R, 0, 7∙3,  [L]
+10∙2, U, 1, 11∙2, [D,L,L,D,D,D]
+12∙2, D, 1, 11∙2, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,U]
+11∙1, L, 1, 11∙2, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U,R]
+11∙3, R, 1, 11∙2, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,L]
+]
+
+[
+box  cdw workr i  new   path to push     
+7∙3,  L, 7∙2,  0, 7∙4,  [D,L,L,U,R]                                               -> PPD (Point 7 4)  (Point 11 2)  R 0 [D,L,L,U,R]                                                  
+7∙3,  R, 7∙4,  0, 7∙2,  [L]                                                       -> PPD (Point 7 2)  (Point 11 2)  L 0 [L]                                                          
+11∙2, U, 10∙2, 1, 12∙2, [D,L,L,D,D,D]                                             -> PPD (Point 7 3)  (Point 12 2)  D 1 [D,L,L,D,D,D]                                                
+11∙2, D, 12∙2, 1, 10∙2, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,U]     -> PPD (Point 7 3)  (Point 10 2)  U 1 [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,U]        
+11∙2, L, 11∙1, 1, 11∙3, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U,R] -> PPD (Point 7 3)  (Point 11 3)  R 1 [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U,R]    
+11∙2, R, 11∙3, 1, 11∙1, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,L]         -> PPD (Point 7 3)  (Point 11 1)  L 1 [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,L]            
+]
+
+]-}
+
 
 toDirection :: Action -> Direction
 toDirection a =

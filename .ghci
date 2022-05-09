@@ -4,6 +4,7 @@
 
 :set -XOverloadedStrings
 :set -XFlexibleContexts
+:set -XTupleSections
 :set -fno-warn-type-defaults
 
 :def rr (\a -> return $ unlines [":r", a])
