@@ -12,9 +12,8 @@ import Control.Monad.State        (evalState)
 import Control.Monad.State.Strict (StateT, evalStateT)
 import Data.Maybe                 (fromJust)
 import Sokoban.Console            (interpretClick, render)
-import Sokoban.Level              (Cell(..), Direction(..), PPD(..), Point(..), fromCell,
-                                   isEmptyOrGoal, levels, movePoint, toCell, w8FromDirection,
-                                   w8ToDirection)
+import Sokoban.Level              (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal,
+                                   levels, movePoint, toCell)
 import Sokoban.Model              (AnimationMode(AnimationDo), GameState(..), ViewState(..), clicks,
                                    getCell, height, initialLevelState, k2pdN, k2ppdMN, levelState,
                                    pathToDirections, pd2kN, ppd2kMN, viewState, width, worker)
@@ -118,16 +117,19 @@ spec = do
   where
     mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     breadFirstTest :: Point -> [Point]
-    breadFirstTest src = runIdentity $ return $ runST $ evalStateT (breadFirstFind solver src) gs
+    breadFirstTest src =
+      let placeholder = Point 0 0
+       in runIdentity $ return $ runST $ evalStateT (breadFirstFind (solver placeholder) src) gs
     aStarTest :: Point -> Point -> [Point]
-    aStarTest src dst = runIdentity $ return $ runST $ evalStateT (aStarFind solver src dst (== dst)) gs
+    aStarTest src dst = runIdentity $ return $ runST $ evalStateT (aStarFind (solver dst) src) gs
     -- aStarFind :: AStarSolver (StateT GameState (GHC.ST.ST s)) Point -> Point -> Point -> (Point -> Bool) -> StateT GameState (GHC.ST.ST s) [Point]    -- Sokoban.Solver
-    solver :: Monad m => AStarSolver (StateT GameState m) Point
-    solver =
+    solver :: Monad m => Point -> AStarSolver (StateT GameState m) Point
+    solver dst =
       AStarSolver
         { neighbors = neighbors
         , distance = distance
-        , heuristic = heuristic
+        , heuristic = heuristic dst
+        , stopCond = (==) dst
         , projection = p2i
         , injection = i2p
         , nodesBound = m * n

@@ -46,14 +46,15 @@ data AStarSolver m p where
   AStarSolver :: (Monad m, Hashable p, Eq p) =>
     { neighbors  :: p -> m [p]
     , distance   :: p -> p -> Int   -- for adjacent points only
-    , heuristic  :: p -> p -> m Int -- calculate heuristic distance from first to second point   
+    , heuristic  :: p -> m Int      -- calculate heuristic distance from first to destination
+    , stopCond   :: p -> Bool       -- condition, when the destination is reached   
     , projection :: p -> Int        -- a function to convert points to integer for Heap data structure
     , injection  :: Int -> p        -- an opposite function to projection   
     , nodesBound :: Int             -- upper bound for the number of nodes
     } -> AStarSolver m p
 
-aStarFind :: forall m p . (PrimMonad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> p -> (p -> Bool) -> m [p]
-aStarFind AStarSolver {..} src dst stopCond = do
+aStarFind :: forall m p . (PrimMonad m, Hashable p, Eq p, Show p) => AStarSolver m p -> p -> m [p]
+aStarFind AStarSolver {..} src  = do
   let p2i = projection
   let maxCount = nodesBound
   maxSize <- newMutVar (0 :: Int)
@@ -85,7 +86,7 @@ aStarFind AStarSolver {..} src dst stopCond = do
                     neighbors <- filterM isAcc neighCandidates
                     forM_ neighbors $ \np -> do
                       let inp = p2i np
-                      hue <- heuristic np dst
+                      hue <- heuristic np
                       let dist = distance np p0
                       let gscoreNp = gscore0 + dist
                       let fscoreNp = Min (gscore0 + dist + hue)
