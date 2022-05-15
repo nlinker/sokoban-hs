@@ -730,6 +730,7 @@ box  cdw workr i  new   path to push
 11∙2, D, 12∙2, 1, 10∙2, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,U]     -> PPD (Point 7 3)  (Point 10 2)  U 1 [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,U]        
 11∙2, L, 11∙1, 1, 11∙3, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U,R] -> PPD (Point 7 3)  (Point 11 3)  R 1 [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U,R]    
 11∙2, R, 11∙3, 1, 11∙1, [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,L]         -> PPD (Point 7 3)  (Point 11 1)  L 1 [U,U,L,U,U,U,R,R,R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,L]            
+      ^        ^  ^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ]
 
 ]-}
