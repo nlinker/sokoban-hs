@@ -27,8 +27,8 @@ import Debug.Trace                (traceM)
 import Test.Hspec
 import Text.InterpolatedString.QM (qm)
 
-gs :: GameState
-gs =
+gsTest :: GameState
+gsTest =
   GameState
     { _collection = yoshiroAutoCollection
     , _index = 0
@@ -40,29 +40,29 @@ spec :: Spec
 spec = do
   describe "mouse click interpretation" $ do
     it "worker move" $ do
-      render gs
-      second (^. viewState) (interpretClick gs (mouse 1 1)) `shouldBe` (Nothing, gs ^. viewState)
-      second (^. viewState) (interpretClick gs (mouse 3 1)) `shouldBe`
-        (Just (A.MoveWorker (Point 3 1)), gs ^. viewState)
-      second (^. viewState) (interpretClick gs (mouse 1 2)) `shouldBe`
-        (Just (A.MoveWorker (Point 1 2)), gs ^. viewState)
-      let vs = gs ^. viewState
-      let (a1, gs1) = interpretClick gs (mouse 2 2)
+      render gsTest
+      second (^. viewState) (interpretClick gsTest (mouse 1 1)) `shouldBe` (Nothing, gsTest ^. viewState)
+      second (^. viewState) (interpretClick gsTest (mouse 3 1)) `shouldBe`
+        (Just (A.MoveWorker (Point 3 1)), gsTest ^. viewState)
+      second (^. viewState) (interpretClick gsTest (mouse 1 2)) `shouldBe`
+        (Just (A.MoveWorker (Point 1 2)), gsTest ^. viewState)
+      let vs = gsTest ^. viewState
+      let (a1, gs1) = interpretClick gsTest (mouse 2 2)
       let (a2, gs2) = interpretClick gs1 (mouse 2 3)
       (a1, gs1 ^. viewState) `shouldBe` (Just (A.SelectBox (Point 2 2)), vs & clicks .~ [Point 2 2])
       (a2, gs2 ^. viewState) `shouldBe` (Just (A.MoveBoxes [Point 2 2] [Point 2 3]), vs & clicks .~ [])
-    it "1 box move" $ gs `shouldBe` gs
+    it "1 box move" $ gsTest `shouldBe` gsTest
   describe "path finding" $ do
     it "move to (2, 1)" $ do
-      let src = gs ^. levelState . worker
+      let src = gsTest ^. levelState . worker
       let dst = Point 2 1
       aStarTest src dst `shouldBe` [Point 5 3, Point 5 2, Point 4 2, Point 3 2, Point 3 1, Point 2 1]
     it "move to self" $ do
-      let src = gs ^. levelState . worker
+      let src = gsTest ^. levelState . worker
       let dst = src
       aStarTest src dst `shouldBe` [Point 5 3]
     it "move to inaccessible area" $ do
-      let src = gs ^. levelState . worker
+      let src = gsTest ^. levelState . worker
       let dst = Point 1 2
       aStarTest src dst `shouldBe` []
   describe "path conversion" $ do
@@ -119,9 +119,9 @@ spec = do
     breadFirstTest :: Point -> [Point]
     breadFirstTest src =
       let placeholder = Point 0 0
-       in runIdentity $ return $ runST $ evalStateT (breadFirstFind (solver placeholder) src) gs
+       in runIdentity $ return $ runST $ evalStateT (breadFirstFind (solver placeholder) src) gsTest
     aStarTest :: Point -> Point -> [Point]
-    aStarTest src dst = runIdentity $ return $ runST $ evalStateT (aStarFind (solver dst) src) gs
+    aStarTest src dst = runIdentity $ return $ runST $ evalStateT (aStarFind (solver dst) src) gsTest
     -- aStarFind :: AStarSolver (StateT GameState (GHC.ST.ST s)) Point -> Point -> Point -> (Point -> Bool) -> StateT GameState (GHC.ST.ST s) [Point]    -- Sokoban.Solver
     solver :: Monad m => Point -> AStarSolver (StateT GameState m) Point
     solver dst =
@@ -134,14 +134,14 @@ spec = do
         , injection = i2p
         , nodesBound = m * n
         }
-    m = gs ^. levelState . height
-    n = gs ^. levelState . width
+    m = gsTest ^. levelState . height
+    n = gsTest ^. levelState . width
     p2i (Point i j) = i * n + j
     i2p k = Point (k `div` n) (k `mod` n)
     heuristic (Point i1 j1) (Point i2 j2) = return $ abs (i1 - i2) + abs (j1 - j2)
     distance np p0 = fromEnum (np /= p0)
     neighbors p0 =
       return $ do
-        let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gs
+        let isAccessible p = evalState (isEmptyOrGoal <$> getCell p) gsTest
         let neighs = map (movePoint p0) [U, D, L, R]
         filter isAccessible neighs

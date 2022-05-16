@@ -23,7 +23,7 @@ import Control.Arrow              (second)
 import Control.Lens               (Lens', ix, lens, use, (%=), (%~), (&), (+=), (-=), (.=), (.~),
                                    (<>=), (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
-import Control.Monad              (filterM, forM, forM_, unless, when)
+import Control.Monad              (filterM, forM, forM_, unless, when, guard, MonadPlus)
 import Control.Monad.Primitive    (PrimMonad(..), PrimState)
 import Control.Monad.ST.Strict    (runST)
 import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
@@ -36,7 +36,7 @@ import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
                                    levels, movePoint, opposite, ppdFst, ppdSnd, w8FromDirection,
-                                   w8ToDirection, _PD)
+                                   w8ToDirection, _PD, ppdIdx, ppdDir, ppdDirs)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Text.InterpolatedString.QM (qm)
 
@@ -47,6 +47,7 @@ import qualified Data.Vector                as V
 import qualified Data.Vector.Unboxed        as VU
 import qualified Sokoban.Level              as L (cells, height, id, width)
 import qualified Text.Builder               as TB
+import Debug.Trace (traceM)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -660,10 +661,10 @@ myFind ctx ppd src dst = do
 
 tryBuildPath :: forall m . PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Direction]
 tryBuildPath ctx ppd src dst = do
-      accessible <- isAccessible dst
-      if accessible
-        then pathToDirections <$> myFind ctx ppd src dst
-        else return []
+  accessible <- isAccessible dst
+  if accessible
+    then pathToDirections <$> myFind ctx ppd src dst
+    else return []
 
 isAccessible :: MonadState GameState m => Point -> m Bool
 isAccessible p = isEmptyOrGoal <$> getCell p
@@ -687,21 +688,42 @@ import Control.Lens
 import Data.List
 import Control.Monad.State.Strict
 
-gs0 <- buildGameState []
-gs1 = step gs0 (MoveWorker (Point 7 4))
-gs = eraseBoxes [(Point 7 3), (Point 11 2)] gs1
-ctx <- ctxGs gs1
-ppd = PPD (Point 7 3) (Point 11 2) L 0 []
-(PPD p1 p2 d i _dirs) = ppd
-cur = [p1, p2] !! i
-w = movePoint cur $ opposite d
-srcs1 = nubBy (\(_,a,_,_) (_,b,_,_) -> a == b) $ map (\d -> (p1, movePoint p1 d, d, 0)) [U, D, L, R] <> map (\d -> (p2, movePoint p2 d, d, 1)) [U, D, L, R]
-srcs2 <- flip evalStateT gs $ filterM (\(_, p, _, _) -> isAccessible p) srcs1
-paths <- flip evalStateT gs $ mapM (\(q, p, d, i) -> (q, p, d, i,) <$> tryBuildPath ctx ppd w p) srcs2
-shifts = map (\(q, p, d, i, dirs) -> (q, p, d, i, movePoint q (opposite d), dirs <> [opposite d])) paths
-dests <- flip evalStateT gs $ filterM (\(_,_,_,_,p,_) -> isAccessible p) shifts
-
+ppd = PPD (Point 7 4) (Point 8 4) R 0 []
+neighTest gs ctx ppd D 0
+neighTest gs ctx ppd U 0
+neighTest gs ctx ppd L 0
+neighTest gs ctx ppd R 0
+neighTest gs ctx ppd D 1
+neighTest gs ctx ppd U 1
+neighTest gs ctx ppd L 1
+neighTest gs ctx ppd R 1
 -}
+
+neighTest :: (PrimMonad m) =>
+  GameState -> SolverContext m -> PPD -> Direction -> Int -> m (Maybe PPD)
+neighTest gs ctx ppd d i = flip evalStateT gs $ do
+  let ps = [ppd ^. ppdFst, ppd ^. ppdSnd]
+  let p = ps !! i
+  let w = movePoint (ppd ^. selector) $ opposite (ppd ^. ppdDir)
+  let p0 = movePoint p (opposite d)
+  let p1 = movePoint p d
+  accessible0 <- (p0 `notElem` ps &&) <$> isAccessible p0
+  accessible1 <- (p1 `notElem` ps &&) <$> isAccessible p1
+  if not $ accessible0 && accessible1
+    then return Nothing
+    else do
+      points' <- myFind ctx ppd w p0
+      if not $ null points'
+        then do
+          --λ> ppd & ppdIdx .~ 0 & selector .~ p
+          --(0∙0 8∙4 R 0 [])
+          --λ> ppd & ppdIdx .~ 1 & selector .~ p
+          --(7∙4 0∙0 R 1 [])
+          let dirs = pathToDirections points' <> [d]
+          return $ Just $ ppd & ppdIdx .~ i & selector .~ p1 & ppdDir .~ d & ppdDirs .~ dirs
+        else
+          return Nothing
+
 
 {-[
 8∙3,  0, [D,L]

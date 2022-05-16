@@ -30,7 +30,7 @@ import Sokoban.Model              (AnimationMode(..), GameState(..),
                                    cells, clicks, destinations, direction, doClearScreen, doMove,
                                    getCell, height, id, initialLevelState, isComplete, levelState,
                                    levelState, message, moveCount, pushCount, stats, step,
-                                   undoIndex, undoMove, undoStack, viewState, width, _UndoItem)
+                                   undoIndex, undoMove, undoStack, viewState, width, _UndoItem, eraseBoxes, ctxGs)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
@@ -44,6 +44,7 @@ import qualified Data.HashSet               as S
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
 import qualified Sokoban.Model              as A (Action(..))
+import System.IO.Unsafe (unsafePerformIO)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -393,3 +394,15 @@ runTestPerf = do
   let gs8 = step gs7 (A.SelectBox (Point 7 3))
   let gs9 = step gs8 (A.MoveBoxes [Point 7 3] [Point 5 2])
   render gs9
+
+(gs, gs3, ctx, sources) = unsafePerformIO $ do
+  gs0 <- (`step` A.NextLevel) <$> buildGameState []
+  let gs1 = step gs0 (A.MoveBoxes [Point 7 4] [Point 7 3])
+  let gs2 = step gs1 (A.MoveBoxes [Point 6 4] [Point 8 4])
+  let gs3 = step gs2 (A.MoveBoxes [Point 7 3] [Point 7 4])
+  let gs = eraseBoxes [Point 7 4, Point 8 4] gs3
+  ctx <- ctxGs gs
+  let part0 = map (, 0) [U, D, L, R]
+  let part1 = map (, 1) [U, D, L, R]
+  let sources = part0 <> part1
+  return (gs, gs3, ctx, sources)  

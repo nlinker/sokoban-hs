@@ -112,7 +112,7 @@ instance Ord PD where
 
 instance Show PPD where
   show pd =
-    "(" <> show (pd ^. ppdFst) <> " " <> show (pd ^. ppdSnd) <> " " <> show (pd ^. ppdDir) <> show (pd ^. ppdIdx) <>
+    "(" <> show (pd ^. ppdFst) <> " " <> show (pd ^. ppdSnd) <> " " <> show (pd ^. ppdDir) <> " " <> show (pd ^. ppdIdx) <>
     " " <> show (pd ^. ppdDirs) <> ")"
 
 instance Ord PPD where
