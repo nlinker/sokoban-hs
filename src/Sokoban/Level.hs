@@ -104,6 +104,9 @@ makePrisms ''PD
 
 makeLenses ''PPD
 
+ppdSelector :: Functor f => (Point -> f Point) -> PPD -> f PPD
+ppdSelector f ppd@(PPD _ _ _ i _) = if i == 0 then ppdFst f ppd else ppdSnd f ppd
+
 instance Show PD where
   show (PD (Point i j) d dirs) = "(" <> show i <> "∙" <> show j <> " " <> show d <> " " <> show dirs <> ")"
 
