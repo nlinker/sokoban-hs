@@ -1,49 +1,76 @@
-{-# LANGUAGE BinaryLiterals        #-}
-{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE ExtendedDefaultRules  #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE QuasiQuotes           #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE ExtendedDefaultRules #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Concurrent         (threadDelay)
-import Control.Exception          (finally)
-import Control.Lens               (use, (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, unless, when)
+import Control.Concurrent (threadDelay)
+import Control.Exception (finally)
+import Control.Lens ((&), (.=), (.~), (^.), use)
+import Control.Monad (forM_, unless, when)
 import Control.Monad.State.Strict (MonadState, execState, runState)
-import Data.Char                  (isDigit)
-import Data.List                  (isSuffixOf, stripPrefix)
-import Data.Maybe                 (fromMaybe, isJust)
-import Data.Vector                ((!))
-import Sokoban.Debug              (setDebugModeM)
-import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox,
-                                   isEmptyOrGoal, isWorker, levels)
-import Sokoban.Model              (AnimationMode(..), GameState(..),
-                                   ViewState(..), animateRequired, animationMode,
-                                   cells, clicks, destinations, direction, doClearScreen, doMove,
-                                   getCell, height, id, initialLevelState, isComplete, levelState,
-                                   levelState, message, moveCount, pushCount, stats, step,
-                                   undoIndex, undoMove, undoStack, viewState, width, _UndoItem, eraseBoxes, ctxGs)
-import Sokoban.Parser             (parseLevels, splitWith)
-import Sokoban.Resources          (testCollection)
-import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
-                                   ConsoleLayer(..), SGR(..), setSGR)
-import System.Environment         (getArgs)
-import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import Data.Char (isDigit)
+import Data.List (isSuffixOf, stripPrefix)
+import Data.Maybe (fromMaybe, isJust)
+import Data.Vector ((!))
+import Sokoban.Debug (setDebugModeM)
+import Sokoban.Level (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox, isEmptyOrGoal, isWorker, levels)
+import Sokoban.Model
+  ( AnimationMode(..)
+  , GameState(..)
+  , SolverContext(..)
+  , ViewState(..)
+  , _UndoItem
+  , animateRequired
+  , animationMode
+  , cells
+  , clicks
+  , destinations
+  , direction
+  , doClearScreen
+  , doMove
+  , eraseBoxes
+  , getCell
+  , height
+  , id
+  , initialLevelState
+  , isComplete
+  , levelState
+  , levelState
+  , message
+  , moveCount
+  , pushCount
+  , stats
+  , step
+  , undoIndex
+  , undoMove
+  , undoStack
+  , viewState
+  , width
+  )
+import Sokoban.Parser (parseLevels, splitWith)
+import Sokoban.Resources (testCollection)
+import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
+import System.Environment (getArgs)
+import System.IO (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.InterpolatedString.QM (qms)
-import Text.Read                  (readMaybe)
+import Text.Read (readMaybe)
 
-import qualified Data.HashSet               as S
-import qualified Data.Text                  as T
-import qualified Data.Text.IO               as T
-import qualified Sokoban.Model              as A (Action(..))
+import Control.Monad.Primitive (PrimMonad)
+import qualified Data.HashMap.Mutable.Basic as HM
+import qualified Data.HashSet as S
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import qualified Sokoban.Model as A (Action(..))
 import System.IO.Unsafe (unsafePerformIO)
 
 animationTickDelay :: Int
@@ -139,7 +166,7 @@ gameLoop gs0 = do
             _ ->
               case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
-                (Nothing, gs)     -> gs
+                (Nothing, gs) -> gs
     -- perform animation if needed
     gs2 <-
       whenWith gs1 (^. (viewState . animateRequired)) $ do
@@ -270,11 +297,11 @@ interpretClick gs key = runState runInterpretClick gs
 isDestination :: Cell -> Bool
 isDestination c =
   case c of
-    Worker _       -> True
+    Worker _ -> True
     WorkerOnGoal _ -> True
-    Goal           -> True
-    Empty          -> True
-    _              -> False
+    Goal -> True
+    Empty -> True
+    _ -> False
 
 extractMouseClick :: String -> Maybe (Point, Bool)
 extractMouseClick key = do
@@ -283,7 +310,7 @@ extractMouseClick key = do
   let lbmDown = "M" `isSuffixOf` rest
   case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
     [Just x, Just y] -> Just (Point (y - 2) ((x - 3) `div` 2), lbmDown)
-    _                -> Nothing
+    _ -> Nothing
 
 clearScreen :: IO ()
 clearScreen = putStrLn "\ESC[2J"
@@ -366,15 +393,15 @@ render gs = do
         Wall -> ('▩', Blue)
         Empty ->
           case (dest, click) of
-            (True, True)   -> ('꘎', White)
-            (False, True)  -> ('꘎', White)
-            (True, False)  -> ('·', White)
+            (True, True) -> ('꘎', White)
+            (False, True) -> ('꘎', White)
+            (True, False) -> ('·', White)
             (False, False) -> (' ', White)
         Goal ->
           case (dest, click) of
-            (True, True)   -> ('✦', White)
-            (False, True)  -> ('✧', Red)
-            (True, False)  -> ('✦', White)
+            (True, True) -> ('✦', White)
+            (False, True) -> ('✧', Red)
+            (True, False) -> ('✦', White)
             (False, False) -> ('✧', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
@@ -395,14 +422,24 @@ runTestPerf = do
   let gs9 = step gs8 (A.MoveBoxes [Point 7 3] [Point 5 2])
   render gs9
 
-(gs, gs3, ctx, sources) = unsafePerformIO $ do
-  gs0 <- (`step` A.NextLevel) <$> buildGameState []
-  let gs1 = step gs0 (A.MoveBoxes [Point 7 4] [Point 7 3])
-  let gs2 = step gs1 (A.MoveBoxes [Point 6 4] [Point 8 4])
-  let gs3 = step gs2 (A.MoveBoxes [Point 7 3] [Point 7 4])
-  let gs = eraseBoxes [Point 7 4, Point 8 4] gs3
-  ctx <- ctxGs gs
-  let part0 = map (, 0) [U, D, L, R]
-  let part1 = map (, 1) [U, D, L, R]
-  let sources = part0 <> part1
-  return (gs, gs3, ctx, sources)  
+sources :: [(Direction, Integer)]
+ctx :: SolverContext IO
+gs, gs3 :: GameState
+(gs, gs3, ctx, sources) =
+  unsafePerformIO $ do
+    gs0 <- (`step` A.NextLevel) <$> buildGameState []
+    let gs1 = step gs0 (A.MoveBoxes [Point 7 4] [Point 7 3])
+    let gs2 = step gs1 (A.MoveBoxes [Point 6 4] [Point 8 4])
+    let gs3 = step gs2 (A.MoveBoxes [Point 7 3] [Point 7 4])
+    let gs = eraseBoxes [Point 7 4, Point 8 4] gs3
+    ctx <- ctxGs gs
+    let part0 = map (, 0) [U, D, L, R]
+    let part1 = map (, 1) [U, D, L, R]
+    let sources = part0 <> part1
+    return (gs, gs3, ctx, sources)
+  where
+    ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
+    ctxGs gs = do
+      hm <- HM.new
+      let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
+      return $ SolverContext hm m n

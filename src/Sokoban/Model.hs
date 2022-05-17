@@ -20,8 +20,8 @@ import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
 import Control.Arrow              (second)
-import Control.Lens               (Lens', ix, lens, use, (%=), (%~), (&), (+=), (-=), (.=), (.~),
-                                   (<>=), (^.), _1, _2, _3)
+import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
+                                   (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.Primitive    (PrimMonad(..), PrimState)
@@ -29,13 +29,14 @@ import Control.Monad.ST.Strict    (runST)
 import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
                                    lift, runState)
 import Data.Foldable              (foldl', minimumBy)
+import Data.Maybe                 (catMaybes)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, ppdFst, ppdSnd, w8FromDirection,
-                                   w8ToDirection, _PD, ppdIdx, ppdDir, ppdDirs, ppdSelector)
+                                   levels, movePoint, opposite, ppdDir, ppdDirs, ppdFst, ppdIdx,
+                                   ppdSelector, ppdSnd, w8FromDirection, w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import Text.InterpolatedString.QM (qm)
 
@@ -46,8 +47,6 @@ import qualified Data.Vector                as V
 import qualified Data.Vector.Unboxed        as VU
 import qualified Sokoban.Level              as L (cells, height, id, width)
 import qualified Text.Builder               as TB
-import Debug.Trace (traceM)
-import Data.Maybe (catMaybes)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -576,20 +575,10 @@ buildPushSolver ctx dst = do
       }
   where
     neighbors (PD p0 d0 _ds0) = do
-      let myFind src dst = do
-            moveSolver <- lift $ buildMoveSolver ctx dst [p0]
-            let pc = ctx ^. pathCache
-            path' <- HM.lookup pc ([p0], d0, src, dst)
-            case path' of
-              Just path -> return path
-              Nothing -> do
-                path <- aStarFind moveSolver src
-                HM.insert pc ([p0], d0, src, dst) path
-                return path
       let tryBuildPath src dst = do
             accessible <- isAccessible dst
             if accessible
-              then pathToDirections <$> myFind src dst
+              then pathToDirections <$> cachingFindPath ctx [p0] d0 src dst
               else return []
       -- cont is the "continue push in the direction d0" neighbor
       -- src is the position of the worker for the push
@@ -630,33 +619,17 @@ buildPushSolver2 ctx _dst2 = do
     distance (PPD p00 p01 d0 i0 _) (PPD p10 p11 d1 i1 _) = undefined
     heuristic = undefined
     stopCond = undefined
+    neighbors1 :: PrimMonad m => SolverContext m -> PPD -> StateT GameState m [PPD]
+    neighbors1 ctx ppd = do
+      let part0 = map (, 0) [U, D, L, R]
+      let part1 = map (, 1) [U, D, L, R]
+      let sources = part0 <> part1
+      candidates <- mapM (uncurry (ppdNeighbor ctx ppd)) sources
+      return $ catMaybes candidates
 
-{-
-
-let ppd = PPD (Point 7 4) (Point 8 4) R 0 []
--}
-
-neighbors1 :: PrimMonad m => SolverContext m -> PPD -> StateT GameState m [PPD]
-neighbors1 ctx ppd = do
-  let part0 = map (, 0) [U, D, L, R]
-  let part1 = map (, 1) [U, D, L, R]
-  let sources = part0 <> part1
-  candidates <- mapM (uncurry (neighbor ctx ppd)) sources
-  return $ catMaybes candidates
-  
-mnGs :: GameState -> (Int, Int)
-mnGs gs = (gs ^. levelState . height, gs ^. levelState . width)
-
-ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
-ctxGs gs = do
-  hm <- HM.new
-  let (m, n) = mnGs gs
-  return $ SolverContext hm m n
-
-myFind :: PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Point]
-myFind ctx ppd src dst = do
-  let (PPD p1 p2 d _i _dirs) = ppd 
-      walls = [p1, p2]
+cachingFindPath ::
+     PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
+cachingFindPath ctx walls d src dst = do
   moveSolver <- lift $ buildMoveSolver ctx dst walls
   let pc = ctx ^. pathCache
   path' <- HM.lookup pc (walls, d, src, dst)
@@ -667,15 +640,8 @@ myFind ctx ppd src dst = do
       HM.insert pc (walls, d, src, dst) path
       return path
 
-tryBuildPath :: forall m . PrimMonad m => SolverContext m -> PPD -> Point -> Point -> StateT GameState m [Direction]
-tryBuildPath ctx ppd src dst = do
-  accessible <- isAccessible dst
-  if accessible
-    then pathToDirections <$> myFind ctx ppd src dst
-    else return []
-
-neighbor :: (PrimMonad m) => SolverContext m -> PPD -> Direction -> Int -> StateT GameState m (Maybe PPD)
-neighbor ctx ppd d i = do
+ppdNeighbor :: (PrimMonad m) => SolverContext m -> PPD -> Direction -> Int -> StateT GameState m (Maybe PPD)
+ppdNeighbor ctx ppd d i = do
   let ps = [ppd ^. ppdFst, ppd ^. ppdSnd]
   let p = ps !! i
   -- invariant that the worker is
@@ -687,12 +653,12 @@ neighbor ctx ppd d i = do
   if not $ accessible0 && accessible1
     then return Nothing
     else do
-      points <- myFind ctx ppd w p0
+      points <- cachingFindPath ctx ps (ppd ^. ppdDir) w p0
       if null points
         then return Nothing
-        else do
           --λ> ppd & ppdIdx .~ 0 & selector .~ p --> (0∙0 8∙4 R 0 [])
           --λ> ppd & ppdIdx .~ 1 & selector .~ p --> (7∙4 0∙0 R 1 [])
+        else do
           let dirs = pathToDirections points <> [d]
           return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p1 & ppdDir .~ d & ppdDirs .~ dirs
 
