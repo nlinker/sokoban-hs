@@ -58,10 +58,11 @@ import Sokoban.Model
   , width
   )
 import Sokoban.Parser (parseLevels, splitWith)
-import Sokoban.Resources (testCollection)
+import Sokoban.Resources (yoshiroAutoCollection)
 import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment (getArgs)
 import System.IO (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import System.IO.Unsafe (unsafePerformIO)
 import Text.InterpolatedString.QM (qms)
 import Text.Read (readMaybe)
 
@@ -71,7 +72,6 @@ import qualified Data.HashSet as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Sokoban.Model as A (Action(..))
-import System.IO.Unsafe (unsafePerformIO)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -116,7 +116,7 @@ buildGameState :: [String] -> IO GameState
 buildGameState args = do
   levelCollection <-
     if null args
-      then return testCollection -- default
+      then return yoshiroAutoCollection -- default
       else do
         let fileName = head args
         levels0 <- fromMaybe (error $ "Cannot parse file " <> fileName) . parseLevels <$> T.readFile fileName

@@ -651,11 +651,7 @@ ppdNeighbor ctx ppd d i = do
           --λ> ppd & ppdIdx .~ 1 & selector .~ p --> (7∙4 0∙0 R 1 [])
         else do
           let dirs = pathToDirections points <> [d]
-          return $ Just $ ppd 
-            & ppdIdx .~ i 
-            & ppdSelector .~ p1 
-            & ppdDir .~ d 
-            & ppdDirs .~ dirs
+          return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p1 & ppdDir .~ d & ppdDirs .~ dirs
 
 cachingFindPath ::
      PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
