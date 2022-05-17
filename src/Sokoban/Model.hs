@@ -601,13 +601,13 @@ buildPushSolver2 ::
   => SolverContext m
   -> (Point, Point)
   -> m (AStarSolver (StateT GameState m) PPD)
-buildPushSolver2 ctx _dst2 = do
+buildPushSolver2 ctx dst2 = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
   let nodesBound = 2 * m * n * m * n * 8
   return $
     AStarSolver
-      { neighbors = neighbors1 ctx
+      { neighbors = neighbors ctx
       , distance = distance
       , heuristic = heuristic
       , stopCond = stopCond
@@ -616,31 +616,22 @@ buildPushSolver2 ctx _dst2 = do
       , nodesBound = nodesBound
       }
   where
-    distance (PPD p00 p01 d0 i0 _) (PPD p10 p11 d1 i1 _) = undefined
-    heuristic = undefined
-    stopCond = undefined
-    neighbors1 :: PrimMonad m => SolverContext m -> PPD -> StateT GameState m [PPD]
-    neighbors1 ctx ppd = do
+    neighbors :: PrimMonad m => SolverContext m -> PPD -> StateT GameState m [PPD]
+    neighbors ctx ppd = do
       let part0 = map (, 0) [U, D, L, R]
       let part1 = map (, 1) [U, D, L, R]
       let sources = part0 <> part1
       candidates <- mapM (uncurry (ppdNeighbor ctx ppd)) sources
       return $ catMaybes candidates
+    -- valid for neighbors only
+    distance (PPD p0 q0 _ _ _) (PPD p1 q1 _ _ _) = fromEnum (p0 /= p1) + fromEnum (q0 /= q1)
+    stopCond (PPD p0 q0 _ _ _) = (p0, q0) == dst2
+    heuristic = undefined
 
-cachingFindPath ::
-     PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
-cachingFindPath ctx walls d src dst = do
-  moveSolver <- lift $ buildMoveSolver ctx dst walls
-  let pc = ctx ^. pathCache
-  path' <- HM.lookup pc (walls, d, src, dst)
-  case path' of
-    Just path -> return path
-    Nothing -> do
-      path <- aStarFind moveSolver src
-      HM.insert pc (walls, d, src, dst) path
-      return path
+pdNeighbor :: PrimMonad m => SolverContext m -> PD -> Direction -> StateT GameState m (Maybe PD)
+pdNeighbor _ctx _pd _d = undefined
 
-ppdNeighbor :: (PrimMonad m) => SolverContext m -> PPD -> Direction -> Int -> StateT GameState m (Maybe PPD)
+ppdNeighbor :: PrimMonad m => SolverContext m -> PPD -> Direction -> Int -> StateT GameState m (Maybe PPD)
 ppdNeighbor ctx ppd d i = do
   let ps = [ppd ^. ppdFst, ppd ^. ppdSnd]
   let p = ps !! i
@@ -660,7 +651,24 @@ ppdNeighbor ctx ppd d i = do
           --λ> ppd & ppdIdx .~ 1 & selector .~ p --> (7∙4 0∙0 R 1 [])
         else do
           let dirs = pathToDirections points <> [d]
-          return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p1 & ppdDir .~ d & ppdDirs .~ dirs
+          return $ Just $ ppd 
+            & ppdIdx .~ i 
+            & ppdSelector .~ p1 
+            & ppdDir .~ d 
+            & ppdDirs .~ dirs
+
+cachingFindPath ::
+     PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
+cachingFindPath ctx walls d src dst = do
+  moveSolver <- lift $ buildMoveSolver ctx dst walls
+  let pc = ctx ^. pathCache
+  path' <- HM.lookup pc (walls, d, src, dst)
+  case path' of
+    Just path -> return path
+    Nothing -> do
+      path <- aStarFind moveSolver src
+      HM.insert pc (walls, d, src, dst) path
+      return path
 
 isAccessible :: MonadState GameState m => Point -> m Bool
 isAccessible p = isEmptyOrGoal <$> getCell p
