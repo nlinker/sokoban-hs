@@ -731,4 +731,25 @@ neighbors1 ctx (PPD p1 p2 d i _dirs) = do
   -- (cont <>) <$> filterM (\(PD _ _ ds) -> (return . not . null) ds) paths
   return undefined
 
+sources :: [(Direction, Integer)]
+ctx :: SolverContext IO
+gs, gs3 :: GameState
+(gs, gs3, ctx, sources) =
+  unsafePerformIO $ do
+    gs0 <- (`step` A.NextLevel) <$> buildGameState []
+    let gs1 = step gs0 (A.MoveBoxes [Point 7 4] [Point 7 3])
+    let gs2 = step gs1 (A.MoveBoxes [Point 6 4] [Point 8 4])
+    let gs3 = step gs2 (A.MoveBoxes [Point 7 3] [Point 7 4])
+    let gs = eraseBoxes [Point 7 4, Point 8 4] gs3
+    ctx <- ctxGs gs
+    let part0 = map (, 0) [U, D, L, R]
+    let part1 = map (, 1) [U, D, L, R]
+    let sources = part0 <> part1
+    return (gs, gs3, ctx, sources)
+  where
+    ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
+    ctxGs gs = do
+      hm <- HM.new
+      let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
+      return $ SolverContext hm m n
 -}
