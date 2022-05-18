@@ -440,7 +440,7 @@ gs, gs0 :: GameState
       hm <- HM.new
       let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
       return $ SolverContext hm m n
-      
+
 {-
 ppd = PPD (Point 2 2) (Point 3 3) R 0 []
 :{
@@ -452,4 +452,4 @@ ppd = PPD (Point 2 2) (Point 3 3) R 0 []
       return $ catMaybes candidates
 :}
 flip evalStateT gs $ neighbors ctx ppd --> [(1∙2 3∙3 U 0 [D,R,U]),(2∙3 3∙3 R 0 [R]),(2∙2 3∙4 R 1 [D,R,R])]
--}      
+-}

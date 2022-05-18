@@ -629,29 +629,46 @@ buildPushSolver2 ctx dst2 = do
     heuristic = undefined
 
 pdNeighbor :: PrimMonad m => SolverContext m -> PD -> Direction -> StateT GameState m (Maybe PD)
-pdNeighbor _ctx _pd _d = undefined
+pdNeighbor ctx pd d = do
+  let (PD p d0 _) = pd
+  let walls = [p]
+  let w = movePoint p (opposite d0) -- where worker is
+  let p1 = movePoint p (opposite d)
+  let p2 = movePoint p d
+  accessible0 <- isAccessible p1
+  accessible1 <- isAccessible p2
+  if not (accessible0 && accessible1)
+    then return Nothing
+    else do
+      points <- cachingFindPath ctx walls d w p1
+      if null points
+        then return Nothing
+        else do
+          let dirs = pathToDirections points <> [d]
+          return $ Just $ PD p2 d dirs
+-- PD Point Direction [Direction]
 
 ppdNeighbor :: PrimMonad m => SolverContext m -> PPD -> Direction -> Int -> StateT GameState m (Maybe PPD)
 ppdNeighbor ctx ppd d i = do
-  let ps = [ppd ^. ppdFst, ppd ^. ppdSnd]
-  let p = ps !! i
+  let walls = [ppd ^. ppdFst, ppd ^. ppdSnd]
+  let p = walls !! i
   -- invariant that the worker is
   let w = movePoint (ppd ^. ppdSelector) $ opposite (ppd ^. ppdDir)
-  let p0 = movePoint p (opposite d)
-  let p1 = movePoint p d
-  accessible0 <- (p0 `notElem` ps &&) <$> isAccessible p0
-  accessible1 <- (p1 `notElem` ps &&) <$> isAccessible p1
-  if not $ accessible0 && accessible1
+  let p1 = movePoint p (opposite d)
+  let p2 = movePoint p d
+  accessible0 <- (p1 `notElem` walls &&) <$> isAccessible p1
+  accessible1 <- (p2 `notElem` walls &&) <$> isAccessible p2
+  if not (accessible0 && accessible1)
     then return Nothing
     else do
-      points <- cachingFindPath ctx ps (ppd ^. ppdDir) w p0
+      points <- cachingFindPath ctx walls d w p1
       if null points
         then return Nothing
           --λ> ppd & ppdIdx .~ 0 & selector .~ p --> (0∙0 8∙4 R 0 [])
           --λ> ppd & ppdIdx .~ 1 & selector .~ p --> (7∙4 0∙0 R 1 [])
         else do
           let dirs = pathToDirections points <> [d]
-          return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p1 & ppdDir .~ d & ppdDirs .~ dirs
+          return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p2 & ppdDir .~ d & ppdDirs .~ dirs
 
 cachingFindPath ::
      PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
