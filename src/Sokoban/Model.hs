@@ -609,8 +609,8 @@ buildPushSolver2 ctx dst2 = do
     AStarSolver
       { neighbors = neighbors ctx
       , distance = distance
-      , heuristic = heuristic
-      , stopCond = stopCond
+      , heuristic = heuristic dst2
+      , stopCond = stopCond dst2
       , projection = ppd2kMN m n
       , injection = k2ppdMN m n
       , nodesBound = nodesBound
@@ -625,8 +625,14 @@ buildPushSolver2 ctx dst2 = do
       return $ catMaybes candidates
     -- valid for neighbors only
     distance (PPD p0 q0 _ _ _) (PPD p1 q1 _ _ _) = fromEnum (p0 /= p1) + fromEnum (q0 /= q1)
-    stopCond (PPD p0 q0 _ _ _) = (p0, q0) == dst2
-    heuristic = undefined
+    stopCond dst (PPD p0 q0 _ _ _) = (p0, q0) == dst
+    -- heuristic = undefined
+    heuristic dst (PPD p0 q0 _d _i _dirs) = do
+      let (p1, q1) = dst
+      return $ distPP p1 p0 + distPP q1 q0
+
+distPP :: Point -> Point -> Int
+distPP (Point i1 j1) (Point i2 j2) = abs (i2 - i1) + abs (j2 - j1)
 
 pdNeighbor :: PrimMonad m => SolverContext m -> PD -> Direction -> StateT GameState m (Maybe PD)
 pdNeighbor ctx pd d = do

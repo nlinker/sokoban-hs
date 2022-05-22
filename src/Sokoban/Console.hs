@@ -7,6 +7,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Console where
@@ -17,13 +18,13 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (finally)
 import Control.Lens ((&), (.=), (.~), (^.), use)
 import Control.Monad (forM_, unless, when)
-import Control.Monad.State.Strict (MonadState, execState, runState)
+import Control.Monad.State.Strict (MonadState, execState, runState, StateT)
 import Data.Char (isDigit)
 import Data.List (isSuffixOf, stripPrefix)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Vector ((!))
 import Sokoban.Debug (setDebugModeM)
-import Sokoban.Level (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox, isEmptyOrGoal, isWorker, levels)
+import Sokoban.Level (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox, isEmptyOrGoal, isWorker, levels, PPD)
 import Sokoban.Model
   ( AnimationMode(..)
   , GameState(..)
@@ -55,7 +56,7 @@ import Sokoban.Model
   , undoMove
   , undoStack
   , viewState
-  , width
+  , width, buildPushSolver2
   )
 import Sokoban.Parser (parseLevels, splitWith)
 import Sokoban.Resources (yoshiroAutoCollection)
@@ -72,6 +73,7 @@ import qualified Data.HashSet as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Sokoban.Model as A (Action(..))
+import Sokoban.Solver (AStarSolver)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -425,15 +427,18 @@ runTestPerf = do
 sources :: [(Direction, Integer)]
 ctx :: SolverContext IO
 gs, gs0 :: GameState
-(gs, gs0, ctx, sources) =
+ps2 :: AStarSolver (StateT GameState IO) PPD
+(gs, gs0, ctx, sources, ps2) =
   unsafePerformIO $ do
-    gs0 <- buildGameState []
+    gs1 <- buildGameState []
+    let gs0 = step gs1 (A.MoveWorker (Point 2 1))
     let gs = eraseBoxes [Point 2 2, Point 3 3] gs0
     ctx <- ctxGs gs
+    ps2 <- buildPushSolver2 ctx (Point 2 2, Point 2 3)
     let part0 = map (, 0) [U, D, L, R]
     let part1 = map (, 1) [U, D, L, R]
     let sources = part0 <> part1
-    return (gs, gs0, ctx, sources)
+    return (gs, gs0, ctx, sources, ps2)
   where
     ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
     ctxGs gs = do
@@ -442,6 +447,29 @@ gs, gs0 :: GameState
       return $ SolverContext hm m n
 
 {-
+λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) U 0 [])) gs
+[(2∙2 3∙3 U 0 []),(2∙3 3∙3 R 0 [L,U,R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]
+
+λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) R 1 [])) gs
+[(2∙2 3∙3 R 1 []),(2∙3 3∙3 R 0 [L,U,R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]
+
+ps2 <- buildPushSolver2 ctx (Point 2 3, Point 2 2)
+λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) R 0 [])) gs
+[(2∙2 3∙3 R 0 []),(2∙3 3∙3 R 0 [R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]
+
+ps2 <- buildPushSolver2 ctx (Point 2 2, Point 2 3)
+λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) R 0 [])) gs
+[
+(2∙2 3∙3 R 0 []),
+(2∙3 3∙3 R 0 [R]),
+(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),
+(3∙3 3∙2 D 0 [R,R,U,U,L,L,D]),
+(3∙3 2∙2 U 1 [L,L,D,D,R,U]),
+(3∙3 2∙3 R 1 [L,U,R]),
+(3∙2 2∙3 L 0 [U,R,R,R,D,D,L,L]),
+(2∙2 2∙3 U 0 [R,R,U,U,L,L,L,D,L,D,D,R,U])
+]
+
 ppd = PPD (Point 2 2) (Point 3 3) R 0 []
 :{
     neighbors ctx ppd = do
