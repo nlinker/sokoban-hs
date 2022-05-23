@@ -752,4 +752,10 @@ gs, gs3 :: GameState
       hm <- HM.new
       let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
       return $ SolverContext hm m n
+
+let m = gs ^. levelState . height
+let n = gs ^. levelState . width
+let w = gs ^. levelState . worker
+
+
 -}

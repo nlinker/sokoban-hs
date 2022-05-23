@@ -16,7 +16,7 @@ import Prelude hiding (id)
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (finally)
-import Control.Lens ((&), (.=), (.~), (^.), use)
+import Control.Lens ((&), (.=), (.~), (^.), use, _1, _2, _3, (%=), lens, Lens')
 import Control.Monad (forM_, unless, when)
 import Control.Monad.State.Strict (MonadState, execState, runState, StateT)
 import Data.Char (isDigit)
@@ -24,7 +24,7 @@ import Data.List (isSuffixOf, stripPrefix)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Vector ((!))
 import Sokoban.Debug (setDebugModeM)
-import Sokoban.Level (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox, isEmptyOrGoal, isWorker, levels, PPD)
+import Sokoban.Level (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox, isEmptyOrGoal, isWorker, levels, PPD, isGoal)
 import Sokoban.Model
   ( AnimationMode(..)
   , GameState(..)
@@ -56,10 +56,10 @@ import Sokoban.Model
   , undoMove
   , undoStack
   , viewState
-  , width, buildPushSolver2
+  , width, buildPushSolver2, extractWBH
   )
 import Sokoban.Parser (parseLevels, splitWith)
-import Sokoban.Resources (yoshiroAutoCollection)
+import Sokoban.Resources (yoshiroAutoCollection, testCollection)
 import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment (getArgs)
 import System.IO (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
@@ -68,6 +68,7 @@ import Text.InterpolatedString.QM (qms)
 import Text.Read (readMaybe)
 
 import Control.Monad.Primitive (PrimMonad)
+import qualified Data.Vector                as V
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet as S
 import qualified Data.Text as T
@@ -118,7 +119,7 @@ buildGameState :: [String] -> IO GameState
 buildGameState args = do
   levelCollection <-
     if null args
-      then return yoshiroAutoCollection -- default
+      then return testCollection -- default
       else do
         let fileName = head args
         levels0 <- fromMaybe (error $ "Cannot parse file " <> fileName) . parseLevels <$> T.readFile fileName
@@ -445,6 +446,25 @@ ps2 :: AStarSolver (StateT GameState IO) PPD
       hm <- HM.new
       let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
       return $ SolverContext hm m n
+
+--tryBuildPath :: Point -> Point -> IO [Point]
+--tryBuildPath src dst = flip evalStateT gs $ do
+--  moveSolver <- buildMoveSolver ctx dst [Point 7 3]
+--  aStarFind moveSolver src
+this :: Lens' a a
+this = lens (\a -> a) (\_ v -> v)
+
+extractBoxes :: GameState -> [Point]
+extractBoxes gs = execState extract []
+  where
+    extract = do
+      let xs = gs ^. levelState . cells
+      let m = gs ^. levelState . height
+      let n = gs ^. levelState . width
+      forM_ [0 .. m - 1] $ \i ->
+        forM_ [0 .. n - 1] $ \j -> do
+          let x = (xs ! i) ! j
+          when (isBox x) $ this %= (Point i j :)
 
 {-
 λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) U 0 [])) gs
