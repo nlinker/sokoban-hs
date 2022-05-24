@@ -533,17 +533,22 @@ findBoxDirections2 gs (box1, box2) =
               let part0 = map (box1, , 0) [U, D, L, R]
               let part1 = map (box2, , 1) [U, D, L, R]
               let sources = part0 <> part1
-              flip execStateT [] $
-                forM_ sources $ \(box, d, i) -> do
+              ppds' <- forM sources $ \(box, d, i) -> do
                   let dst = movePoint box $ opposite d
-                  accessible <- lift $ isAccessible dst
-                  when accessible $ do
-                    path <- lift $ tryBuildPath ctx w dst
-                    unless (null path) $ do
-                      let dirs = pathToDirections path
-                      let ppd = PPD box1 box2 U 0 []
-                      let newPpd = ppd & ppdIdx .~ i & ppdSelector .~ box & ppdDir .~ d & ppdDirs .~ dirs
-                      this %= (newPpd :)
+                  accessible <- isAccessible dst
+                  if accessible
+                    then do
+                      path <- tryBuildPath ctx w dst
+                      if not $ null path
+                        then do
+                          let dirs = pathToDirections path
+                          let ppd = PPD box1 box2 U 0 []
+                          return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ box & ppdDir .~ d & ppdDirs .~ dirs
+                        else
+                          return Nothing
+                    else
+                      return Nothing                        
+              return $ catMaybes ppds'
     return paths
   where
     tryBuildPath ::
