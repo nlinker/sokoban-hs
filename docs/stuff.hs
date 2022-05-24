@@ -757,5 +757,16 @@ let m = gs ^. levelState . height
 let n = gs ^. levelState . width
 let w = gs ^. levelState . worker
 
+    fromBool :: Bool -> a -> Maybe a
+    fromBool p = if p then Just else const Nothing
+    tryBuildPath ::
+         forall m. (PrimMonad m)
+      => SolverContext (StateT GameState m)
+      -> Point
+      -> Point
+      -> StateT GameState m [Point]
+    tryBuildPath ctx src dst = do
+      moveSolver <- buildMoveSolver ctx dst [box1, box2]
+      aStarFind moveSolver src
 
 -}
