@@ -1,80 +1,55 @@
-{-# LANGUAGE BinaryLiterals #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE BinaryLiterals        #-}
+{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE ExtendedDefaultRules #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ExtendedDefaultRules  #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeFamilies          #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Concurrent (threadDelay)
-import Control.Exception (finally)
-import Control.Lens ((&), (.=), (.~), (^.), use, _1, _2, _3, (%=), lens, Lens')
-import Control.Monad (forM_, unless, when)
-import Control.Monad.State.Strict (MonadState, execState, runState, StateT)
-import Data.Char (isDigit)
-import Data.List (isSuffixOf, stripPrefix)
-import Data.Maybe (fromMaybe, isJust)
-import Data.Vector ((!))
-import Sokoban.Debug (setDebugModeM)
-import Sokoban.Level (Cell(..), Direction(..), LevelCollection(..), Point(..), isBox, isEmptyOrGoal, isWorker, levels, PPD, isGoal)
-import Sokoban.Model
-  ( AnimationMode(..)
-  , GameState(..)
-  , SolverContext(..)
-  , ViewState(..)
-  , _UndoItem
-  , animateRequired
-  , animationMode
-  , cells
-  , clicks
-  , destinations
-  , direction
-  , doClearScreen
-  , doMove
-  , eraseBoxes
-  , getCell
-  , height
-  , id
-  , initialLevelState
-  , isComplete
-  , levelState
-  , levelState
-  , message
-  , moveCount
-  , pushCount
-  , stats
-  , step
-  , undoIndex
-  , undoMove
-  , undoStack
-  , viewState
-  , width, buildPushSolver2, extractWBH
-  )
-import Sokoban.Parser (parseLevels, splitWith)
-import Sokoban.Resources (yoshiroAutoCollection, testCollection)
-import System.Console.ANSI (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..), ConsoleLayer(..), SGR(..), setSGR)
-import System.Environment (getArgs)
-import System.IO (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import System.IO.Unsafe (unsafePerformIO)
+import Control.Concurrent         (threadDelay)
+import Control.Exception          (finally)
+import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
+import Control.Monad              (forM_, unless, when)
+import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
+import Data.Char                  (isDigit)
+import Data.List                  (isSuffixOf, stripPrefix)
+import Data.Maybe                 (fromMaybe, isJust)
+import Data.Vector                ((!))
+import Sokoban.Debug              (setDebugModeM)
+import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), PPD, Point(..),
+                                   isBox, isEmptyOrGoal, isWorker, levels)
+import Sokoban.Model              (AnimationMode(..), GameState(..), SolverContext(..),
+                                   ViewState(..), animateRequired, animationMode, buildPushSolver2,
+                                   cells, clicks, destinations, direction, doClearScreen, doMove,
+                                   eraseBoxes, getCell, height, id, initialLevelState, isComplete,
+                                   levelState, levelState, message, moveCount, pushCount, stats,
+                                   step, undoIndex, undoMove, undoStack, viewState, width,
+                                   _UndoItem)
+import Sokoban.Parser             (parseLevels, splitWith)
+import Sokoban.Resources          (testCollection, yoshiroAutoCollection)
+import Sokoban.Solver             (AStarSolver)
+import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
+                                   ConsoleLayer(..), SGR(..), setSGR)
+import System.Environment         (getArgs)
+import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import System.IO.Unsafe           (unsafePerformIO)
 import Text.InterpolatedString.QM (qms)
-import Text.Read (readMaybe)
+import Text.Read                  (readMaybe)
 
-import Control.Monad.Primitive (PrimMonad)
-import qualified Data.Vector                as V
+import           Control.Monad.Primitive    (PrimMonad)
 import qualified Data.HashMap.Mutable.Basic as HM
-import qualified Data.HashSet as S
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Sokoban.Model as A (Action(..))
-import Sokoban.Solver (AStarSolver)
+import qualified Data.HashSet               as S
+import qualified Data.Text                  as T
+import qualified Data.Text.IO               as T
+import qualified Sokoban.Model              as A (Action(..))
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -169,7 +144,7 @@ gameLoop gs0 = do
             _ ->
               case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
-                (Nothing, gs) -> gs
+                (Nothing, gs)     -> gs
     -- perform animation if needed
     gs2 <-
       whenWith gs1 (^. (viewState . animateRequired)) $ do
@@ -300,11 +275,11 @@ interpretClick gs key = runState runInterpretClick gs
 isDestination :: Cell -> Bool
 isDestination c =
   case c of
-    Worker _ -> True
+    Worker _       -> True
     WorkerOnGoal _ -> True
-    Goal -> True
-    Empty -> True
-    _ -> False
+    Goal           -> True
+    Empty          -> True
+    _              -> False
 
 extractMouseClick :: String -> Maybe (Point, Bool)
 extractMouseClick key = do
@@ -313,7 +288,7 @@ extractMouseClick key = do
   let lbmDown = "M" `isSuffixOf` rest
   case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
     [Just x, Just y] -> Just (Point (y - 2) ((x - 3) `div` 2), lbmDown)
-    _ -> Nothing
+    _                -> Nothing
 
 clearScreen :: IO ()
 clearScreen = putStrLn "\ESC[2J"
@@ -396,15 +371,15 @@ render gs = do
         Wall -> ('▩', Blue)
         Empty ->
           case (dest, click) of
-            (True, True) -> ('꘎', White)
-            (False, True) -> ('꘎', White)
-            (True, False) -> ('·', White)
+            (True, True)   -> ('꘎', White)
+            (False, True)  -> ('꘎', White)
+            (True, False)  -> ('·', White)
             (False, False) -> (' ', White)
         Goal ->
           case (dest, click) of
-            (True, True) -> ('✦', White)
-            (False, True) -> ('✧', Red)
-            (True, False) -> ('✦', White)
+            (True, True)   -> ('✦', White)
+            (False, True)  -> ('✧', Red)
+            (True, False)  -> ('✦', White)
             (False, False) -> ('✧', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
@@ -432,10 +407,10 @@ ps2 :: AStarSolver (StateT GameState IO) PPD
 (gs, gs0, ctx, sources, ps2) =
   unsafePerformIO $ do
     gs1 <- buildGameState []
-    let gs0 = step gs1 (A.MoveWorker (Point 2 1))
-    let gs = eraseBoxes [Point 2 2, Point 3 3] gs0
+    let gs0 = step gs1 (A.MoveWorker (Point 7 2))
+    let gs = eraseBoxes [Point 11 2, Point 7 3] gs0
     ctx <- ctxGs gs
-    ps2 <- buildPushSolver2 ctx (Point 2 2, Point 2 3)
+    ps2 <- buildPushSolver2 ctx (Point 5 1, Point 5 2)
     let part0 = map (, 0) [U, D, L, R]
     let part1 = map (, 1) [U, D, L, R]
     let sources = part0 <> part1
@@ -452,7 +427,9 @@ ps2 :: AStarSolver (StateT GameState IO) PPD
 --  moveSolver <- buildMoveSolver ctx dst [Point 7 3]
 --  aStarFind moveSolver src
 this :: Lens' a a
-this = lens (\a -> a) (\_ v -> v)
+this = lens id (\_ v -> v)
+  where
+    id x = x
 
 extractBoxes :: GameState -> [Point]
 extractBoxes gs = execState extract []
@@ -465,7 +442,6 @@ extractBoxes gs = execState extract []
         forM_ [0 .. n - 1] $ \j -> do
           let x = (xs ! i) ! j
           when (isBox x) $ this %= (Point i j :)
-
 {-
 λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) U 0 [])) gs
 [(2∙2 3∙3 U 0 []),(2∙3 3∙3 R 0 [L,U,R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]

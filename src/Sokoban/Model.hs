@@ -23,13 +23,13 @@ import Control.Arrow              (second)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
-import Control.Monad              (filterM, forM, forM_, guard, unless, when)
+import Control.Monad              (filterM, forM, forM_, unless, when)
 import Control.Monad.Primitive    (PrimMonad(..), PrimState)
-import Control.Monad.ST.Strict    (ST, runST)
-import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, execStateT,
-                                   get, gets, lift, runState)
+import Control.Monad.ST.Strict    (runST)
+import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
+                                   lift, runState)
 import Data.Foldable              (foldl', minimumBy)
-import Data.Maybe                 (catMaybes, isJust, listToMaybe)
+import Data.Maybe                 (catMaybes)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
@@ -533,21 +533,20 @@ findBoxDirections2 gs (box1, box2) =
               let part0 = map (box1, , 0) [U, D, L, R]
               let part1 = map (box2, , 1) [U, D, L, R]
               let sources = part0 <> part1
-              ppds' <- forM sources $ \(box, d, i) -> do
+              ppds' <-
+                forM sources $ \(box, d, i) -> do
                   let dst = movePoint box $ opposite d
                   accessible <- isAccessible dst
-                  if accessible
-                    then do
+                  if not accessible
+                    then return Nothing
+                    else do
                       path <- tryBuildPath ctx w dst
-                      if not $ null path
-                        then do
+                      if null path
+                        then return Nothing
+                        else do
                           let dirs = pathToDirections path
                           let ppd = PPD box1 box2 U 0 []
                           return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ box & ppdDir .~ d & ppdDirs .~ dirs
-                        else
-                          return Nothing
-                    else
-                      return Nothing                        
               return $ catMaybes ppds'
     return paths
   where
@@ -561,6 +560,15 @@ findBoxDirections2 gs (box1, box2) =
       moveSolver <- buildMoveSolver ctx dst [box1, box2]
       aStarFind moveSolver src
 
+-- [
+-- (11∙2 7∙3 U 0 [R,R, D,D,D, D,D,D, D,D,D, L,L,L,L,D,L]),
+-- (11∙2 7∙3 D 0 [L,L,D,D,D,R,D,D,D,L,L,D,D]),
+-- (11∙2 7∙3 L 0 [R,R,D,D,D,D,D,D,D,D,D,L,L,L,L]),
+-- (11∙2 7∙3 R 0 [R,R,D,D,D,D,D,D,D,D,D,L,L,L,L,D,L,L,U]),
+-- (11∙2 7∙3 U 1 [L,L,D,D,D,R,D,D,D,L]),
+-- (11∙2 7∙3 L 1 [L,L,D,D,D,R,D,D]),
+-- (11∙2 7∙3 R 1 [L,L,D,D,D,R,D,D,D,L,L,U])
+-- ]
 --        points <- lift $ forM_ sources $ \(dst, i) -> do
 --                      return $ Point 1 2
 --        return points
@@ -583,7 +591,6 @@ findBoxDirections2 gs (box1, box2) =
 --      let sources = part0 <> part1
 --      candidates <- mapM (uncurry (ppdNeighbor ctx ppd)) sources
 --      return $ catMaybes candidates
-
 buildMoveSolver ::
      forall m n. (PrimMonad m, MonadState GameState n)
   => SolverContext m
@@ -755,9 +762,6 @@ cachingFindPath ctx walls d src dst = do
       path <- aStarFind moveSolver src
       HM.insert pc (walls, d, src, dst) path
       return path
-
-this :: Lens' a a
-this = lens (\a -> a) (\_ v -> v)
 
 isAccessible :: MonadState GameState m => Point -> m Bool
 isAccessible p = isEmptyOrGoal <$> getCell p
