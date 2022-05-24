@@ -568,7 +568,7 @@ findBoxDirections2 gs (box1, box2) =
         then Just ()
         else Nothing
     pathToMaybe xs =
-      if null xs
+      if not $ null xs
         then Just xs
         else Nothing
 
