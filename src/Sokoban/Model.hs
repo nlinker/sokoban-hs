@@ -453,22 +453,22 @@ moveBoxesByWorker src dst = do
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
       viewState . animationMode .= AnimationDo
-  where
+  where    
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       gs <- get
-      let srcs = findBoxDirections gs s
+      let sourcePds = findBoxDirections gs s
       let m = gs ^. levelState . height
       let n = gs ^. levelState . width
       paths <-
-        forM srcs $ \src ->
+        forM sourcePds $ \src ->
           return $ runST $ do
-            let dst = PD t D []
+            let dst = PD t U []
             hm <- HM.new
             let ctx = SolverContext hm m n
             pushSolver <- buildPushSolver ctx dst
-            path <- flip evalStateT gs $ aStarFind pushSolver src
-            return $ pushPathToDirections path
+            pds <- flip evalStateT gs $ aStarFind pushSolver src
+            return $ pushPathToDirections pds
       let nePaths = filter (not . null) paths
       let selected =
             if null nePaths
@@ -477,8 +477,26 @@ moveBoxesByWorker src dst = do
       return selected
     tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
     tryMove2Boxes ss ts = do
-      traceM [qm| {ss} -> {ts} |] -- [| [| g =<< (x >>= f) |] |]
-      return []
+      gs <- get
+      let [s1, s2] = ss
+      let [t1, t2] = ts
+      let sourcePpds = findBoxDirections2 gs (s1, s2)
+      let m = gs ^. levelState . height
+      let n = gs ^. levelState . width
+      paths <-
+        forM sourcePpds $ \(src :: PPD) ->
+          return $ runST $ do
+            hm <- HM.new
+            let ctx = SolverContext hm m n
+            pushSolver <- buildPushSolver2 ctx (t1, t2)
+            ppds <- flip evalStateT gs $ aStarFind pushSolver src
+            return $ pushPathToDirections2 ppds
+      let nePaths = filter (not . null) paths
+      let selected =
+            if null nePaths
+              then []
+              else minimumBy (comparing length) nePaths
+      return selected
 
 -- erase source boxes to not break path finding and avoid spoil the current gs
 eraseBoxes :: [Point] -> GameState -> GameState
@@ -520,16 +538,6 @@ findBoxDirections gs box =
     let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
     return dirPoints
 
---xyz :: IO ()
---xyz = do
---  putStrLn "A B C"
---  result <- runMaybeT $ do
---    maybeX <- Just . (== "1") <$> lift getLine
---    maybeY <- Just <$> lift getLine
---    x <- lift maybeX
---    y <- lift maybeY
---    lift $ putStrLn $ "You entered x = " <> show x <> " y = " <> show y
---  putStrLn [qm| result = {result}|]
 findBoxDirections2 :: GameState -> (Point, Point) -> [PPD]
 findBoxDirections2 gs (box1, box2) =
   runIdentity $ do
@@ -594,13 +602,12 @@ buildMoveSolver ctx dst walls = do
       }
   where
     neighbors :: (MonadState GameState n) => Point -> n [Point]
-    neighbors p0
-          --isAccessible :: Point -> StateT GameState m Bool
-     = do
+    neighbors p0 = do
       let isAccessible p =
             if p `elem` walls
               then return False
               else isEmptyOrGoal <$> getCell p
+      -- isAccessible :: Point -> StateT GameState m Bool
       let neighs = map (movePoint p0) [U, D, L, R]
       filterM isAccessible neighs
     distance np p0 = fromEnum (np /= p0)
@@ -899,9 +906,6 @@ showState gs =
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
 
-pushPathToDirections :: [PD] -> [Direction]
-pushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
-
 pathToDirections :: [Point] -> [Direction]
 pathToDirections ps = reverse $ convert ps []
   where
@@ -911,6 +915,12 @@ pathToDirections ps = reverse $ convert ps []
       case deriveDir p1 p2 of
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
+
+pushPathToDirections :: [PD] -> [Direction]
+pushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
+
+pushPathToDirections2 :: [PPD] -> [Direction]
+pushPathToDirections2 ppds = reverse $ foldl' (\acc ppd -> reverse (ppd ^. ppdDirs) <> acc) [] ppds
 
 point2kN :: Int -> Point -> Int
 point2kN n (Point i j) = i * n + j
