@@ -15,7 +15,7 @@ module Sokoban.Console where
 import Prelude hiding (id)
 
 import Control.Concurrent         (forkIO, threadDelay)
-import Control.Concurrent.STM     (TVar, atomically, newTVar, readTVar, writeTVar)
+import Control.Concurrent.STM     (TVar, atomically, newTVar, readTVar, writeTVar, newTVarIO)
 import Control.Exception          (finally)
 import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, replicateM_, unless, when)
@@ -43,7 +43,7 @@ import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntens
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import System.IO.Unsafe           (unsafePerformIO)
+import System.IO.Unsafe           (unsafePerformIO, unsafeDupablePerformIO)
 import Text.InterpolatedString.QM (qms)
 import Text.Read                  (readMaybe)
 
@@ -447,9 +447,12 @@ extractBoxes gs = execState extract []
           let x = (xs ! i) ! j
           when (isBox x) $ this %= (Point i j :)
 
+shared :: TVar Integer
+{-# NOINLINE shared #-}
+shared = unsafePerformIO $ newTVarIO 0
+
 stmExample :: IO ()
 stmExample = do
-  shared <- atomically $ newTVar 0
   before <- atomRead shared
   putStrLn $ "Before: " ++ show before
   _ <- forkIO $ replicateM_ 25 (dispVar shared >> milliSleep 20)
