@@ -50,6 +50,7 @@ import qualified Data.HashSet               as S
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
 import qualified Sokoban.Model              as A (Action(..))
+import Debug.Trace (trace)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -117,6 +118,7 @@ buildGameState args = do
             , _animateRequired = False
             , _animationMode = AnimationDo
             , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
+            , _isCalculating = False
             , _progress = ""
             }
       }
@@ -127,7 +129,7 @@ gameLoop gs0 = do
     moveCursorToOrigin
     render gs0
   key <- getKey
-  when (key /= "\ESC") $ do
+  when True $ do
     let gs1 =
           case key of
             "\ESC[A" -> step gs0 A.Up
@@ -142,6 +144,9 @@ gameLoop gs0 = do
             "i" -> step gs0 A.Redo
             "r" -> step gs0 A.Restart
             "d" -> step gs0 A.ToggleDebugMode
+            "t" -> step gs0 A.StartTimer
+            "\ESC" -> step gs0 A.CancelTimer
+--            _ -> trace key gs0
             _ ->
               case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
@@ -254,7 +259,7 @@ interpretClick gs key = runState runInterpretClick gs
                          return Nothing
                      ([p3, p2, p1, p0], [c3, c2, c1, c0])
                        | isBox c0 && isBox c1 && isDestination c2 && isDestination c3 -> do
-                         viewState . clicks .= []
+                         viewState . clicks .= [p3, p2, p1, p0]
                          return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
                      ([p3, p2, p1, p0], [c3, c2, c1, c0])
                        | isBox c0 && isBox c1 && isDestination c2 && isBox c3 -> do

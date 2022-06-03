@@ -33,7 +33,17 @@ gsTest =
     { _collection = yoshiroAutoCollection
     , _index = 0
     , _levelState = fromJust $ initialLevelState $ head $ yoshiroAutoCollection ^. levels
-    , _viewState = ViewState False [] S.empty False AnimationDo "" ""
+    , _viewState =
+        ViewState
+          { _doClearScreen = False
+          , _clicks = []
+          , _destinations = S.empty
+          , _animateRequired = False
+          , _animationMode = AnimationDo
+          , _message = ""
+          , _isCalculating = False
+          , _progress = ""
+          }
     }
 
 spec :: Spec

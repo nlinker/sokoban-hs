@@ -95,9 +95,15 @@ data ViewState =
     , _animateRequired :: !Bool
     , _animationMode   :: !AnimationMode
     , _message         :: !T.Text
+    , _isCalculating   :: !Bool
     , _progress        :: !T.Text
     }
   deriving (Eq, Show)
+
+-- TODO convert these flags above to Command queue
+data Command
+  = ClearScreen
+  | ShowAnimation
 
 data Stats =
   Stats
@@ -164,6 +170,8 @@ data Action
   | SelectWorker
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
+  | StartTimer
+  | CancelTimer
   | ToggleDebugMode
   deriving (Eq, Show)
 
@@ -187,6 +195,8 @@ runStep action = do
     SelectWorker      -> computeWorkerReachability
     SelectBox box     -> computeBoxReachability box
     ToggleDebugMode   -> toggleDebugMode
+    StartTimer        -> startTimer
+    CancelTimer       -> cancelTimer
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()
@@ -222,6 +232,14 @@ toggleDebugMode = do
   dm <- getDebugModeM
   setDebugModeM $ not dm
   viewState . message .= [qm| Set debug mode: {dm} -> {not dm}|]
+  
+startTimer :: MonadState GameState m => m ()
+startTimer = viewState . isCalculating .= True
+   
+cancelTimer :: MonadState GameState m => m ()
+cancelTimer = do
+  viewState . isCalculating .= False
+  viewState . progress .= ""
 
 restartLevel :: MonadState GameState m => m ()
 restartLevel = do
@@ -454,7 +472,7 @@ moveBoxesByWorker src dst = do
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
       viewState . animationMode .= AnimationDo
-  where    
+  where
     tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
     tryMove1Box s t = do
       gs <- get
