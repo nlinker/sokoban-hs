@@ -95,6 +95,7 @@ data ViewState =
     , _animateRequired :: !Bool
     , _animationMode   :: !AnimationMode
     , _message         :: !T.Text
+    , _progress        :: !T.Text
     }
   deriving (Eq, Show)
 

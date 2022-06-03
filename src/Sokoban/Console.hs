@@ -30,8 +30,8 @@ import Sokoban.Model              (AnimationMode(..), GameState(..), SolverConte
                                    ViewState(..), animateRequired, animationMode, buildPushSolver2,
                                    cells, clicks, destinations, direction, doClearScreen, doMove,
                                    eraseBoxes, getCell, height, id, initialLevelState, isComplete,
-                                   levelState, levelState, message, moveCount, pushCount, stats,
-                                   step, undoIndex, undoMove, undoStack, viewState, width,
+                                   levelState, levelState, message, moveCount, progress, pushCount,
+                                   stats, step, undoIndex, undoMove, undoStack, viewState, width,
                                    _UndoItem)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection, yoshiroAutoCollection)
@@ -117,6 +117,7 @@ buildGameState args = do
             , _animateRequired = False
             , _animationMode = AnimationDo
             , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
+            , _progress = ""
             }
       }
 
@@ -257,7 +258,7 @@ interpretClick gs key = runState runInterpretClick gs
                          return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
                      ([p3, p2, p1, p0], [c3, c2, c1, c0])
                        | isBox c0 && isBox c1 && isDestination c2 && isBox c3 -> do
-                         viewState . clicks .= []
+                         viewState . clicks .= [p3, p2, p1, p0]
                          return $ Just $ A.MoveBoxes [p0, p1] [p2, p3]
                        | otherwise -> do
                          viewState . clicks .= []
@@ -333,6 +334,7 @@ render gs = do
   --  <> " " - this to avoid trailing stuff while undoing
   T.putStrLn $ [qms|Level: {ls ^. id} ({moves}, {pushes})|] <> " "
   T.putStrLn $ vs ^. message
+  T.putStrLn $ vs ^. progress
   where
     colorStr :: Color -> Bool -> String -> IO ()
     colorStr color selected str = do

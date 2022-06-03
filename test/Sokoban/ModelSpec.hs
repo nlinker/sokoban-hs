@@ -33,7 +33,7 @@ gsTest =
     { _collection = yoshiroAutoCollection
     , _index = 0
     , _levelState = fromJust $ initialLevelState $ head $ yoshiroAutoCollection ^. levels
-    , _viewState = ViewState False [] S.empty False AnimationDo ""
+    , _viewState = ViewState False [] S.empty False AnimationDo "" ""
     }
 
 spec :: Spec
