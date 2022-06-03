@@ -14,15 +14,18 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Concurrent         (threadDelay)
+import Control.Concurrent         (forkIO, threadDelay)
+import Control.Concurrent.STM     (TVar, atomically, newTVar, readTVar, writeTVar)
 import Control.Exception          (finally)
 import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, unless, when)
+import Control.Monad              (forM_, replicateM_, unless, when)
+import Control.Monad.Primitive    (PrimMonad)
 import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
 import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
+import Debug.Trace                (trace)
 import Sokoban.Debug              (setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), PPD, Point(..),
                                    isBox, isEmptyOrGoal, isWorker, levels)
@@ -44,13 +47,11 @@ import System.IO.Unsafe           (unsafePerformIO)
 import Text.InterpolatedString.QM (qms)
 import Text.Read                  (readMaybe)
 
-import           Control.Monad.Primitive    (PrimMonad)
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet               as S
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
 import qualified Sokoban.Model              as A (Action(..))
-import Debug.Trace (trace)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -146,7 +147,6 @@ gameLoop gs0 = do
             "d" -> step gs0 A.ToggleDebugMode
             "t" -> step gs0 A.StartTimer
             "\ESC" -> step gs0 A.CancelTimer
---            _ -> trace key gs0
             _ ->
               case interpretClick gs0 key of
                 (Just action, gs) -> step gs action
@@ -163,6 +163,7 @@ gameLoop gs0 = do
         return $ gs2 & viewState . doClearScreen .~ False
     gameLoop gs3
 
+--            _ -> trace key gs0
 animate :: GameState -> GameState -> IO ()
 animate gsFrom gsTo = do
   let undos = gsTo ^. levelState . undoStack
@@ -429,10 +430,6 @@ ps2 :: AStarSolver (StateT GameState IO) PPD
       let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
       return $ SolverContext hm m n
 
---tryBuildPath :: Point -> Point -> IO [Point]
---tryBuildPath src dst = flip evalStateT gs $ do
---  moveSolver <- buildMoveSolver ctx dst [Point 7 3]
---  aStarFind moveSolver src
 this :: Lens' a a
 this = lens id (\_ v -> v)
   where
@@ -449,38 +446,26 @@ extractBoxes gs = execState extract []
         forM_ [0 .. n - 1] $ \j -> do
           let x = (xs ! i) ! j
           when (isBox x) $ this %= (Point i j :)
-{-
-λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) U 0 [])) gs
-[(2∙2 3∙3 U 0 []),(2∙3 3∙3 R 0 [L,U,R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]
 
-λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) R 1 [])) gs
-[(2∙2 3∙3 R 1 []),(2∙3 3∙3 R 0 [L,U,R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]
+stmExample :: IO ()
+stmExample = do
+  shared <- atomically $ newTVar 0
+  before <- atomRead shared
+  putStrLn $ "Before: " ++ show before
+  _ <- forkIO $ replicateM_ 25 (dispVar shared >> milliSleep 20)
+  _ <- forkIO $ replicateM_ 10 (appV (2 +) shared >> milliSleep 50)
+  _ <- forkIO $ replicateM_ 20 (appV pred shared >> milliSleep 25)
+  milliSleep 800
+  after <- atomRead shared
+  putStrLn $ "After: " ++ show after
+  where
+    milliSleep = threadDelay . (*) 1000
 
-ps2 <- buildPushSolver2 ctx (Point 2 3, Point 2 2)
-λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) R 0 [])) gs
-[(2∙2 3∙3 R 0 []),(2∙3 3∙3 R 0 [R]),(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),(2∙3 2∙2 U 1 [R,R,U,U,L,L,L,D,L,D,D,R,U])]
+atomRead :: TVar a -> IO a
+atomRead = atomically . readTVar
 
-ps2 <- buildPushSolver2 ctx (Point 2 2, Point 2 3)
-λ> evalStateT (aStarFind ps2 (PPD (Point 2 2) (Point 3 3) R 0 [])) gs
-[
-(2∙2 3∙3 R 0 []),
-(2∙3 3∙3 R 0 [R]),
-(2∙3 3∙2 L 1 [U,R,R,R,D,D,L,L]),
-(3∙3 3∙2 D 0 [R,R,U,U,L,L,D]),
-(3∙3 2∙2 U 1 [L,L,D,D,R,U]),
-(3∙3 2∙3 R 1 [L,U,R]),
-(3∙2 2∙3 L 0 [U,R,R,R,D,D,L,L]),
-(2∙2 2∙3 U 0 [R,R,U,U,L,L,L,D,L,D,D,R,U])
-]
+dispVar :: Show a => TVar a -> IO ()
+dispVar x = atomRead x >>= print
 
-ppd = PPD (Point 2 2) (Point 3 3) R 0 []
-:{
-    neighbors ctx ppd = do
-      let part0 = map (, 0) [U, D, L, R]
-      let part1 = map (, 1) [U, D, L, R]
-      let sources = part0 <> part1
-      candidates <- mapM (uncurry (ppdNeighbor ctx ppd)) sources
-      return $ catMaybes candidates
-:}
-flip evalStateT gs $ neighbors ctx ppd --> [(1∙2 3∙3 U 0 [D,R,U]),(2∙3 3∙3 R 0 [R]),(2∙2 3∙4 R 1 [D,R,R])]
--}
+appV :: (a -> a) -> TVar a -> IO ()
+appV fn x = atomically $ readTVar x >>= writeTVar x . fn

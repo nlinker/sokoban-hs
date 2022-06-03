@@ -59,6 +59,7 @@ dependencies:
   - mtl
   - primitive
   - qm-interpolated-string
+  - stm
   - STMonadTrans
   - template-haskell
   - transformers
