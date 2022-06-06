@@ -47,6 +47,7 @@ tests:
 
 dependencies:
   - ansi-terminal
+  - async
   - base
   - bytestring
   - Cabal
@@ -57,6 +58,7 @@ dependencies:
   - lens
   - MonadRandom
   - mtl
+  - parallel
   - primitive
   - qm-interpolated-string
   - stm

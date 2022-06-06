@@ -50,6 +50,8 @@ import qualified Data.Vector.Unboxed        as VU
 import           Debug.Trace                (traceM)
 import qualified Sokoban.Level              as L (cells, height, id, width)
 import qualified Text.Builder               as TB
+import Control.Concurrent.Async (forConcurrently, mapConcurrently)
+import System.IO.Unsafe (unsafePerformIO)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -232,10 +234,10 @@ toggleDebugMode = do
   dm <- getDebugModeM
   setDebugModeM $ not dm
   viewState . message .= [qm| Set debug mode: {dm} -> {not dm}|]
-  
+
 startTimer :: MonadState GameState m => m ()
 startTimer = viewState . isCalculating .= True
-   
+
 cancelTimer :: MonadState GameState m => m ()
 cancelTimer = do
   viewState . isCalculating .= False
@@ -503,7 +505,7 @@ moveBoxesByWorker src dst = do
       let m = gs ^. levelState . height
       let n = gs ^. levelState . width
       paths <-
-        forM sourcePpds $ \(src :: PPD) ->
+        parallelForM sourcePpds $ \(src :: PPD) ->
           return $ runST $ do
             hm <- HM.new
             let ctx = SolverContext hm m n
@@ -516,6 +518,8 @@ moveBoxesByWorker src dst = do
               then []
               else minimumBy (comparing length) nePaths
       return selected
+    parallelForM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
+    parallelForM xs f = sequenceA $ unsafePerformIO $ forConcurrently xs (return . f)
 
 -- erase source boxes to not break path finding and avoid spoil the current gs
 eraseBoxes :: [Point] -> GameState -> GameState
