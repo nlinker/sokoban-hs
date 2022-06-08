@@ -14,12 +14,13 @@ library:
     - src
   exposed-modules:
     - Sokoban.Console
+    - Sokoban.Debug
+    - Sokoban.Example
     - Sokoban.Level
     - Sokoban.Model
     - Sokoban.Parser
     - Sokoban.Resources
     - Sokoban.Solver
-    - Sokoban.Debug
     - Helper
   other-modules:
     - Paths_sokoban

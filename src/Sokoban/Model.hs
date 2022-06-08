@@ -20,38 +20,38 @@ import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
 import Control.Arrow              (second)
+import Control.Concurrent.Async   (forConcurrently, mapConcurrently)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
 import Control.Monad              (filterM, forM, forM_, unless, when)
+import Control.Monad.Identity     (runIdentity)
 import Control.Monad.Primitive    (PrimMonad(..), PrimState)
 import Control.Monad.ST.Strict    (runST)
 import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
                                    lift, runState)
+import Control.Monad.Trans.Maybe  (MaybeT(..), runMaybeT)
 import Data.Foldable              (foldl', minimumBy)
 import Data.Maybe                 (catMaybes)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
+import Debug.Trace                (traceM)
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
                                    levels, movePoint, opposite, ppdDir, ppdDirs, ppdFst, ppdIdx,
                                    ppdSelector, ppdSnd, w8FromDirection, w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
+import System.IO.Unsafe           (unsafePerformIO)
 import Text.InterpolatedString.QM (qm)
 
-import           Control.Monad.Identity     (runIdentity)
-import           Control.Monad.Trans.Maybe  (MaybeT(..), runMaybeT)
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet               as S
 import qualified Data.Text                  as T
 import qualified Data.Vector                as V
 import qualified Data.Vector.Unboxed        as VU
-import           Debug.Trace                (traceM)
 import qualified Sokoban.Level              as L (cells, height, id, width)
 import qualified Text.Builder               as TB
-import Control.Concurrent.Async (forConcurrently, mapConcurrently)
-import System.IO.Unsafe (unsafePerformIO)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -474,52 +474,54 @@ moveBoxesByWorker src dst = do
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
       viewState . animationMode .= AnimationDo
-  where
-    tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
-    tryMove1Box s t = do
-      gs <- get
-      let sourcePds = findBoxDirections gs s
-      let m = gs ^. levelState . height
-      let n = gs ^. levelState . width
-      paths <-
-        forM sourcePds $ \src ->
-          return $ runST $ do
-            let dst = PD t U []
-            hm <- HM.new
-            let ctx = SolverContext hm m n
-            pushSolver <- buildPushSolver ctx dst
-            pds <- flip evalStateT gs $ aStarFind pushSolver src
-            return $ pushPathToDirections pds
-      let nePaths = filter (not . null) paths
-      let selected =
-            if null nePaths
-              then []
-              else minimumBy (comparing length) nePaths
-      return selected
-    tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
-    tryMove2Boxes ss ts = do
-      gs <- get
-      let [s1, s2] = ss
-      let [t1, t2] = ts
-      let sourcePpds = findBoxDirections2 gs (s1, s2)
-      let m = gs ^. levelState . height
-      let n = gs ^. levelState . width
-      paths <-
-        parallelForM sourcePpds $ \(src :: PPD) ->
-          return $ runST $ do
-            hm <- HM.new
-            let ctx = SolverContext hm m n
-            pushSolver <- buildPushSolver2 ctx (t1, t2)
-            ppds <- flip evalStateT gs $ aStarFind pushSolver src
-            return $ pushPathToDirections2 ppds
-      let nePaths = filter (not . null) paths
-      let selected =
-            if null nePaths
-              then []
-              else minimumBy (comparing length) nePaths
-      return selected
-    parallelForM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
-    parallelForM xs f = sequenceA $ unsafePerformIO $ forConcurrently xs (return . f)
+
+tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
+tryMove1Box s t = do
+  gs <- get
+  let sourcePds = findBoxDirections gs s
+  let m = gs ^. levelState . height
+  let n = gs ^. levelState . width
+  paths <-
+    forM sourcePds $ \src ->
+      return $ runST $ do
+        let dst = PD t U []
+        hm <- HM.new
+        let ctx = SolverContext hm m n
+        pushSolver <- buildPushSolver ctx dst
+        pds <- flip evalStateT gs $ aStarFind pushSolver src
+        return $ pushPathToDirections pds
+  let nePaths = filter (not . null) paths
+  let selected =
+        if null nePaths
+          then []
+          else minimumBy (comparing length) nePaths
+  return selected
+
+tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
+tryMove2Boxes ss ts = do
+  gs <- get
+  let [s1, s2] = ss
+  let [t1, t2] = ts
+  let sourcePpds = findBoxDirections2 gs (s1, s2)
+  let m = gs ^. levelState . height
+  let n = gs ^. levelState . width
+  paths <-
+    parallelForM sourcePpds $ \(src :: PPD) ->
+      return $ runST $ do
+        hm <- HM.new
+        let ctx = SolverContext hm m n
+        pushSolver <- buildPushSolver2 ctx (t1, t2)
+        ppds <- flip evalStateT gs $ aStarFind pushSolver src
+        return $ pushPathToDirections2 ppds
+  let nePaths = filter (not . null) paths
+  let selected =
+        if null nePaths
+          then []
+          else minimumBy (comparing length) nePaths
+  return selected
+
+parallelForM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
+parallelForM xs f = sequenceA $ unsafePerformIO $ forConcurrently xs (return . f)
 
 -- erase source boxes to not break path finding and avoid spoil the current gs
 eraseBoxes :: [Point] -> GameState -> GameState
