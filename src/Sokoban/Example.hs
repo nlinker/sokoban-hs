@@ -57,9 +57,14 @@ example :: IO ()
 example = do
   let gs = GameState 0 0 "" 0 Nothing []
   channel <- newTChanIO :: IO (TChan Command)
+  tidTV <- newTVarIO Nothing :: IO (TVar (Maybe ThreadId))
   (do setupScreen
-      gameLoop channel gs) `finally`
-    destroyScreen
+      tid <- forkIO $ gameLoop channel gs
+      atomically $ writeTVar tidTV (Just tid)
+      keyLoop channel) `finally`
+    (do Just tid <- atomically $ readTVar tidTV
+        killThread tid
+        destroyScreen)
   where
     setupScreen = do
       hSetBuffering stdin NoBuffering
