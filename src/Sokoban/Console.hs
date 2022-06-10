@@ -135,8 +135,8 @@ gameLoop gs0 = do
           case key of
             "\ESC[A" -> step gs0 A.Up
             "\ESC[B" -> step gs0 A.Down
-            "\ESC[C" -> step gs0 A.Right
             "\ESC[D" -> step gs0 A.Left
+            "\ESC[C" -> step gs0 A.Right
             "\ESC[5~" -> step gs0 A.PrevLevel
             "[" -> step gs0 A.PrevLevel
             "\ESC[6~" -> step gs0 A.NextLevel

@@ -161,8 +161,8 @@ makeLenses ''SolverContext
 data Action
   = Up
   | Down
-  | Left
   | Right
+  | Left
   | Undo
   | Redo
   | Restart
