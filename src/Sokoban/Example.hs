@@ -11,7 +11,7 @@ import Prelude hiding (id)
 
 import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO, newTVar, newTVarIO,
-                                   readTVar, writeTChan, writeTVar)
+                                   readTChan, readTVar, writeTChan, writeTVar)
 import Control.Lens               ((%=), (%~), (&), (.~), (?~), (^.))
 import Control.Lens.TH            (makeLenses)
 import Control.Monad              (forM_, when)
@@ -32,21 +32,20 @@ data GameState =
     , _yyy      :: Int
     , _txt      :: T.Text
     , _progress :: Int
-    , _commands :: [Command]
     , _thread   :: Maybe ThreadId
+    , _commands :: [Command]
     }
-  deriving (Eq, Ord, Show)
-
-data Command
-  = StartThread
-  | StopThread
-  | Progress
   deriving (Eq, Ord, Show)
 
 data Action
   = Move Direction
   | Start
   | Stop
+  deriving (Eq, Ord, Show)
+
+data Command
+  = Progress
+  | ActionCmd Action
   deriving (Eq, Ord, Show)
 
 makeLenses ''GameState
@@ -56,9 +55,10 @@ makeLenses ''GameState
 --backgroundThread = unsafePerformIO $ newTVarIO Nothing
 example :: IO ()
 example = do
-  let gs = GameState 0 0 "" 0 [] Nothing
+  let gs = GameState 0 0 "" 0 Nothing []
+  channel <- newTChanIO :: IO (TChan Command)
   (do setupScreen
-      gameLoop gs) `finally`
+      gameLoop channel gs) `finally`
     destroyScreen
   where
     setupScreen = do
@@ -68,28 +68,35 @@ example = do
       putStrLn "\ESC[?25l"
     destroyScreen = putStrLn "\ESC[?25h" -- show cursor
 
--- (channel :: TChan Command) <- newTChanIO
--- background <- newTVarIO Nothing :: IO (Maybe ThreadId)
---    backgroundThread :: TChan Command -> IO ()
---    backgroundThread chan = do
---      threadDelay 1000_000 -- 1 second
---      atomically $ writeTChan chan Progress
---      backgroundThread chan
-gameLoop :: GameState -> IO ()
-gameLoop gs = do
-  render gs
+keyLoop :: TChan Command -> IO ()
+keyLoop chan = do
   key <- getKey
-  when True $ do
-    let gs1 =
-          case key of
-            "\ESC[A" -> step gs (Move U)
-            "\ESC[B" -> step gs (Move D)
-            "\ESC[C" -> step gs (Move L)
-            "\ESC[D" -> step gs (Move R)
-            "s"      -> step gs Start
-            "\ESC"   -> step gs Stop
-            _        -> gs
-    gameLoop gs1
+  case key of
+    "\ESC[A" -> atomically $ writeTChan chan (ActionCmd (Move U))
+    "\ESC[B" -> atomically $ writeTChan chan (ActionCmd (Move D))
+    "\ESC[C" -> atomically $ writeTChan chan (ActionCmd (Move L))
+    "\ESC[D" -> atomically $ writeTChan chan (ActionCmd (Move R))
+    "s"      -> atomically $ writeTChan chan (ActionCmd Start)
+    "\ESC"   -> atomically $ writeTChan chan (ActionCmd Stop)
+    _        -> pure ()
+  keyLoop chan
+
+progressLoop :: TChan Command -> IO ()
+progressLoop chan = do
+  threadDelay 1_000_000 -- 1 second
+  atomically $ writeTChan chan Progress
+  progressLoop chan
+
+-- background <- newTVarIO Nothing :: IO (Maybe ThreadId)
+gameLoop :: TChan Command -> GameState -> IO ()
+gameLoop chan gs = do
+  render gs
+  cmd <- atomically $ readTChan chan
+  let gs1 =
+        case cmd of
+          ActionCmd action -> step gs action
+          _                -> gs
+  gameLoop chan gs1
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""
@@ -124,10 +131,10 @@ move d =
     R -> xxx %= pred
 
 start :: MonadState GameState m => m ()
-start = undefined
+start = commands %= (ActionCmd Start :)
 
 stop :: MonadState GameState m => m ()
-stop = undefined
+stop = commands %= (ActionCmd Stop :)
 
 render :: GameState -> IO ()
-render gs = T.putStrLn [qms|state: x={gs ^. xxx} y={gs ^. yyy}: '{gs ^. txt}'|]
+render gs = T.putStrLn [qms|state: x={gs ^. xxx} y={gs ^. yyy}: {gs ^. progress} {gs ^. commands}|]
