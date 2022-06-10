@@ -97,25 +97,19 @@ gameLoop :: TChan Command -> GameState -> IO ()
 gameLoop chan gs = do
   render gs
   cmd <- atomically $ readTChan chan
-  let gs1 =
-        case cmd of
-          ActionCmd action -> step gs action
-          _                -> gs
+  gs1 <- case cmd of
+          ActionCmd Start -> do
+            tid <- forkIO $ progressLoop chan
+            return $ gs & thread ?~ tid           
+          ActionCmd Stop ->
+            case gs ^. thread of
+              Just tid -> do
+                killThread tid
+                return $ gs & thread .~ Nothing & progress .~ 0
+              Nothing -> return gs
+          ActionCmd action -> return $ step gs action
+          Progress -> return $ gs & progress %~ succ
   gameLoop chan gs1
-
-getKey :: IO String
-getKey = reverse <$> getKey' ""
-  where
-    getKey' chars = do
-      char <- getChar
-      more <- hReady stdin
-      (if more
-         then getKey'
-         else return)
-        (char : chars)
-
-applyV :: TVar a -> (a -> a) -> IO ()
-applyV x fn = atomically $ readTVar x >>= writeTVar x . fn
 
 step :: GameState -> Action -> GameState
 step state action = (execState $ runStep action) state
@@ -143,3 +137,14 @@ stop = commands %= (ActionCmd Stop :)
 
 render :: GameState -> IO ()
 render gs = T.putStrLn [qms|state: x={gs ^. xxx} y={gs ^. yyy}: {gs ^. progress} {gs ^. commands}|]
+
+getKey :: IO String
+getKey = reverse <$> getKey' ""
+  where
+    getKey' chars = do
+      char <- getChar
+      more <- hReady stdin
+      (if more
+         then getKey'
+         else return)
+        (char : chars)

@@ -769,4 +769,7 @@ let w = gs ^. levelState . worker
       moveSolver <- buildMoveSolver ctx dst [box1, box2]
       aStarFind moveSolver src
 
+applyV :: TVar a -> (a -> a) -> IO ()
+applyV x fn = atomically $ readTVar x >>= writeTVar x . fn
+
 -}
