@@ -15,8 +15,8 @@ module Sokoban.Console where
 import Prelude hiding (id)
 
 import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
-import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO, newTVar, newTVarIO,
-                                   readTChan, readTVar, writeTChan, writeTVar, isEmptyTChan)
+import Control.Concurrent.STM     (TChan, TVar, atomically, isEmptyTChan, newTChanIO, newTVar,
+                                   newTVarIO, readTChan, readTVar, writeTChan, writeTVar)
 import Control.Exception          (finally)
 import Control.Lens               (Lens', lens, use, (%=), (%~), (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, replicateM_, unless, when)
@@ -56,6 +56,7 @@ import qualified Sokoban.Model              as A (Action(..))
 
 data Command
   = CmdAction A.Action
+  | CmdMouseClick (Point, Bool)
   | CmdTick
   deriving (Eq, Show)
 
@@ -99,7 +100,6 @@ run = do
                 showChan
       showChan
       destroyScreen
-
     setupScreen = do
       hSetBuffering stdin NoBuffering
       hSetEcho stdin False
@@ -152,27 +152,25 @@ keyLoop chan = do
   key <- getKey
   let a' =
         case key of
-          "\ESC[A" -> Just (A.Move U)
-          "\ESC[B" -> Just (A.Move D)
-          "\ESC[D" -> Just (A.Move L)
-          "\ESC[C" -> Just (A.Move R)
-          "[" -> Just A.PrevLevel
-          "]" -> Just A.NextLevel
-          "\ESC[5~" -> Just A.PrevLevel
-          "\ESC[6~" -> Just A.NextLevel
-          "u" -> Just A.Undo
-          "i" -> Just A.Redo
-          "r" -> Just A.Restart
-          "d" -> Just A.ToggleDebugMode
-          k
-            | False && isJust (extractMouseClick k) ->
-              case interpretClick gs0 key of
-                (Just action, gs) -> Just action
-                (Nothing, gs)     -> Nothing
-          _ -> trace [qm| key={show key} |] Nothing
+          "\ESC[A" -> Just (CmdAction (A.Move U))
+          "\ESC[B" -> Just (CmdAction (A.Move D))
+          "\ESC[D" -> Just (CmdAction (A.Move L))
+          "\ESC[C" -> Just (CmdAction (A.Move R))
+          "\ESC[5~" -> Just (CmdAction A.PrevLevel)
+          "\ESC[6~" -> Just (CmdAction A.NextLevel)
+          "[" -> Just (CmdAction A.PrevLevel)
+          "]" -> Just (CmdAction A.NextLevel)
+          "u" -> Just (CmdAction A.Undo)
+          "i" -> Just (CmdAction A.Redo)
+          "r" -> Just (CmdAction A.Restart)
+          "d" -> Just (CmdAction A.ToggleDebugMode)
+          _ ->
+            case extractMouseClick key of
+              Just (point, lbmDown) -> Just (CmdMouseClick (point, lbmDown))
+              Nothing               -> trace [qm| key={show key} |] Nothing
   case a' of
-    Just action -> atomically $ writeTChan chan (CmdAction action)
-    Nothing -> pure ()
+    Just action -> atomically $ writeTChan chan action
+    Nothing     -> pure ()
   keyLoop chan
 
 gameLoop :: TChan Command -> GameState -> IO ()
@@ -184,6 +182,9 @@ gameLoop chan gs0 = do
   gs1 <-
     case cmd of
       CmdAction action -> return $ step gs0 action
+      CmdMouseClick click -> case interpretClick gs0 click of
+                               (Just _, gs) -> undefined
+                               (Nothing, gs) -> undefined
       CmdTick          -> return $ gs0 & viewState . progress %~ (<> ".")
   -- perform animation if needed
   gs2 <-
@@ -234,8 +235,8 @@ animate gsFrom gsTo = do
       threadDelay animationTickDelayInUndoRedo
       animateRedo gs2 dirs
 
-interpretClick :: GameState -> String -> (Maybe A.Action, GameState)
-interpretClick gs key = runState runInterpretClick gs
+interpretClick :: GameState -> (Point, Bool) -> (Maybe A.Action, GameState)
+interpretClick gs click = runState runInterpretClick gs
   where
     runInterpretClick :: MonadState GameState m => m (Maybe A.Action)
     runInterpretClick = do
@@ -243,10 +244,9 @@ interpretClick gs key = runState runInterpretClick gs
       -- if complete then disable clicking
       if complete
         then return Nothing
-        else case extractMouseClick key of
-               Nothing -> return Nothing
-               Just (_, True) -> return Nothing
-               Just (click, False) -> do
+        else case click of
+               (_, True) -> return Nothing
+               (click, False) -> do
                  let gather clks =
                        if click `elem` clks
                          then []
