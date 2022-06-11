@@ -64,7 +64,7 @@ animationTickDelay :: Int
 animationTickDelay = 20 * 1000
 
 animationTickDelayInUndoRedo :: Int
-animationTickDelayInUndoRedo = 100
+animationTickDelayInUndoRedo = 200
 
 whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
@@ -182,10 +182,11 @@ gameLoop chan gs0 = do
   gs1 <-
     case cmd of
       CmdAction action -> return $ step gs0 action
-      CmdMouseClick click -> case interpretClick gs0 click of
-                               (Just _, gs) -> undefined
-                               (Nothing, gs) -> undefined
-      CmdTick          -> return $ gs0 & viewState . progress %~ (<> ".")
+      CmdMouseClick click ->
+        case interpretClick gs0 click of
+          (Just action, gs) -> return $ step gs action
+          (Nothing, gs)     -> return gs
+      CmdTick -> return $ gs0 & viewState . progress %~ (<> ".")
   -- perform animation if needed
   gs2 <-
     whenWith gs1 (^. (viewState . animateRequired)) $ do
