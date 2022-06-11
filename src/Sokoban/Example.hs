@@ -44,8 +44,8 @@ data Action
   deriving (Eq, Ord, Show)
 
 data Command
-  = Progress
-  | ActionCmd Action
+  = CmdTick
+  | CmdAction Action
   deriving (Eq, Ord, Show)
 
 makeLenses ''GameState
@@ -82,19 +82,19 @@ keyLoop :: TChan Command -> IO ()
 keyLoop chan = do
   key <- getKey
   case key of
-    "\ESC[A" -> atomically $ writeTChan chan (ActionCmd (Move U))
-    "\ESC[B" -> atomically $ writeTChan chan (ActionCmd (Move D))
-    "\ESC[C" -> atomically $ writeTChan chan (ActionCmd (Move L))
-    "\ESC[D" -> atomically $ writeTChan chan (ActionCmd (Move R))
-    "s"      -> atomically $ writeTChan chan (ActionCmd Start)
-    "\ESC"   -> atomically $ writeTChan chan (ActionCmd Stop)
+    "\ESC[A" -> atomically $ writeTChan chan (CmdAction (Move U))
+    "\ESC[B" -> atomically $ writeTChan chan (CmdAction (Move D))
+    "\ESC[C" -> atomically $ writeTChan chan (CmdAction (Move L))
+    "\ESC[D" -> atomically $ writeTChan chan (CmdAction (Move R))
+    "s"      -> atomically $ writeTChan chan (CmdAction Start)
+    "\ESC"   -> atomically $ writeTChan chan (CmdAction Stop)
     _        -> pure ()
   keyLoop chan
 
 progressLoop :: TChan Command -> IO ()
 progressLoop chan = do
   threadDelay 1_000_000 -- 1 second
-  atomically $ writeTChan chan Progress
+  atomically $ writeTChan chan CmdTick
   progressLoop chan
 
 -- background <- newTVarIO Nothing :: IO (Maybe ThreadId)
@@ -103,17 +103,17 @@ gameLoop chan gs = do
   render gs
   cmd <- atomically $ readTChan chan
   gs1 <- case cmd of
-          ActionCmd Start -> do
+          CmdAction Start -> do
             tid <- forkIO $ progressLoop chan
             return $ gs & thread ?~ tid
-          ActionCmd Stop ->
+          CmdAction Stop ->
             case gs ^. thread of
               Just tid -> do
                 killThread tid
                 return $ gs & thread .~ Nothing & progress .~ 0
               Nothing -> return gs
-          ActionCmd action -> return $ step gs action
-          Progress -> return $ gs & progress %~ succ
+          CmdAction action -> return $ step gs action
+          CmdTick -> return $ gs & progress %~ succ
   gameLoop chan gs1
 
 step :: GameState -> Action -> GameState
@@ -135,10 +135,10 @@ move d =
     R -> xxx %= pred
 
 start :: MonadState GameState m => m ()
-start = commands %= (ActionCmd Start :)
+start = commands %= (CmdAction Start :)
 
 stop :: MonadState GameState m => m ()
-stop = commands %= (ActionCmd Stop :)
+stop = commands %= (CmdAction Stop :)
 
 render :: GameState -> IO ()
 render gs = T.putStrLn [qms|state: x={gs ^. xxx} y={gs ^. yyy}: {gs ^. progress} {gs ^. commands}|]

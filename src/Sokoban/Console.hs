@@ -14,10 +14,11 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
-import Control.Concurrent         (forkIO, threadDelay)
-import Control.Concurrent.STM     (TVar, atomically, newTVar, readTVar, writeTVar, newTVarIO)
+import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
+import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO, newTVar, newTVarIO,
+                                   readTChan, readTVar, writeTChan, writeTVar, isEmptyTChan)
 import Control.Exception          (finally)
-import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
+import Control.Lens               (Lens', lens, use, (%=), (%~), (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, replicateM_, unless, when)
 import Control.Monad.Primitive    (PrimMonad)
 import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
@@ -25,7 +26,7 @@ import Data.Char                  (isDigit)
 import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
-import Debug.Trace                (trace)
+import Debug.Trace                (trace, traceM)
 import Sokoban.Debug              (setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), PPD, Point(..),
                                    isBox, isEmptyOrGoal, isWorker, levels)
@@ -43,8 +44,8 @@ import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntens
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import System.IO.Unsafe           (unsafePerformIO, unsafeDupablePerformIO)
-import Text.InterpolatedString.QM (qms)
+import System.IO.Unsafe           (unsafePerformIO)
+import Text.InterpolatedString.QM (qm, qms)
 import Text.Read                  (readMaybe)
 
 import qualified Data.HashMap.Mutable.Basic as HM
@@ -52,6 +53,11 @@ import qualified Data.HashSet               as S
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
 import qualified Sokoban.Model              as A (Action(..))
+
+data Command
+  = CmdAction A.Action
+  | CmdTick
+  deriving (Eq, Show)
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -67,20 +73,38 @@ whenWith a p runA =
 
 -- | run console game
 run :: IO ()
-run =
-  do setDebugModeM False
-     args <- getArgs
-     gameState <- buildGameState args
-     do setupScreen
-        gameLoop gameState
-     `finally` destroyScreen
+run = do
+  setDebugModeM False
+  args <- getArgs
+  gs <- buildGameState args
+  chan <- newTChanIO :: IO (TChan Command)
+  tvar <- newTVarIO Nothing :: IO (TVar (Maybe ThreadId))
+  setupAll chan tvar gs `finally` destroyAll chan tvar
   where
+    setupAll chan tvar gs = do
+      setupScreen
+      tid <- forkIO $ gameLoop chan gs
+      atomically $ writeTVar tvar (Just tid)
+      keyLoop chan
+    destroyAll chan tvar = do
+      Just tid <- atomically $ readTVar tvar
+      killThread tid
+      let showChan = do
+            isEmpty <- atomically $ isEmptyTChan chan
+            if isEmpty
+              then return ()
+              else do
+                el <- atomically $ readTChan chan
+                putStrLn [qm| el = {el} |]
+                showChan
+      showChan
+      destroyScreen
+
     setupScreen = do
       hSetBuffering stdin NoBuffering
       hSetEcho stdin False
       clearScreen
-        -- hide cursor
-      putStrLn "\ESC[?25l"
+      putStrLn "\ESC[?25l" -- hide cursor
        -- enable mouse capturing mode
       putStrLn "\ESC[?1000h"
       putStrLn "\ESC[?1015h"
@@ -119,51 +143,60 @@ buildGameState args = do
             , _animateRequired = False
             , _animationMode = AnimationDo
             , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
-            , _isCalculating = False
             , _progress = ""
             }
       }
 
-gameLoop :: GameState -> IO ()
-gameLoop gs0 = do
+keyLoop :: TChan Command -> IO ()
+keyLoop chan = do
+  key <- getKey
+  let a' =
+        case key of
+          "\ESC[A" -> Just (A.Move U)
+          "\ESC[B" -> Just (A.Move D)
+          "\ESC[D" -> Just (A.Move L)
+          "\ESC[C" -> Just (A.Move R)
+          "[" -> Just A.PrevLevel
+          "]" -> Just A.NextLevel
+          "\ESC[5~" -> Just A.PrevLevel
+          "\ESC[6~" -> Just A.NextLevel
+          "u" -> Just A.Undo
+          "i" -> Just A.Redo
+          "r" -> Just A.Restart
+          "d" -> Just A.ToggleDebugMode
+          k
+            | False && isJust (extractMouseClick k) ->
+              case interpretClick gs0 key of
+                (Just action, gs) -> Just action
+                (Nothing, gs)     -> Nothing
+          _ -> trace [qm| key={show key} |] Nothing
+  case a' of
+    Just action -> atomically $ writeTChan chan (CmdAction action)
+    Nothing -> pure ()
+  keyLoop chan
+
+gameLoop :: TChan Command -> GameState -> IO ()
+gameLoop chan gs0 = do
   unless False $ do
     moveCursorToOrigin
     render gs0
-  key <- getKey
-  when True $ do
-    let gs1 =
-          case key of
-            "\ESC[A" -> step gs0 A.Up
-            "\ESC[B" -> step gs0 A.Down
-            "\ESC[D" -> step gs0 A.Left
-            "\ESC[C" -> step gs0 A.Right
-            "\ESC[5~" -> step gs0 A.PrevLevel
-            "[" -> step gs0 A.PrevLevel
-            "\ESC[6~" -> step gs0 A.NextLevel
-            "]" -> step gs0 A.NextLevel
-            "u" -> step gs0 A.Undo
-            "i" -> step gs0 A.Redo
-            "r" -> step gs0 A.Restart
-            "d" -> step gs0 A.ToggleDebugMode
-            "t" -> step gs0 A.StartTimer
-            "\ESC" -> step gs0 A.CancelTimer
-            _ ->
-              case interpretClick gs0 key of
-                (Just action, gs) -> step gs action
-                (Nothing, gs)     -> gs
-    -- perform animation if needed
-    gs2 <-
-      whenWith gs1 (^. (viewState . animateRequired)) $ do
-        animate gs0 gs1
-        return $ gs1 & viewState . animateRequired .~ False & viewState . animationMode .~ AnimationDo
-    -- clear screen if needed
-    gs3 <-
-      whenWith gs2 (^. (viewState . doClearScreen)) $ do
-        clearScreen
-        return $ gs2 & viewState . doClearScreen .~ False
-    gameLoop gs3
+  cmd <- atomically $ readTChan chan
+  gs1 <-
+    case cmd of
+      CmdAction action -> return $ step gs0 action
+      CmdTick          -> return $ gs0 & viewState . progress %~ (<> ".")
+  -- perform animation if needed
+  gs2 <-
+    whenWith gs1 (^. (viewState . animateRequired)) $ do
+      animate gs0 gs1
+      return $ gs1 & viewState . animateRequired .~ False & viewState . animationMode .~ AnimationDo
+  -- clear screen if needed
+  gs3 <-
+    whenWith gs2 (^. (viewState . doClearScreen)) $ do
+      clearScreen
+      return $ gs2 & viewState . doClearScreen .~ False
+  gameLoop chan gs3
 
---            _ -> trace key gs0
 animate :: GameState -> GameState -> IO ()
 animate gsFrom gsTo = do
   let undos = gsTo ^. levelState . undoStack
@@ -410,9 +443,9 @@ runTestPerf = do
 
 sources :: [(Direction, Integer)]
 ctx :: SolverContext IO
-gs, gs0 :: GameState
+gsa, gs0 :: GameState
 ps2 :: AStarSolver (StateT GameState IO) PPD
-(gs, gs0, ctx, sources, ps2) =
+(gsa, gs0, ctx, sources, ps2) =
   unsafePerformIO $ do
     gs1 <- buildGameState []
     let gs0 = step gs1 (A.MoveWorker (Point 7 2))

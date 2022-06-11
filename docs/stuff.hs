@@ -772,4 +772,14 @@ let w = gs ^. levelState . worker
 applyV :: TVar a -> (a -> a) -> IO ()
 applyV x fn = atomically $ readTVar x >>= writeTVar x . fn
 
+      let showChan = do
+            isEmpty <- atomically $ isEmptyTChan chan
+            if isEmpty
+              then return ()
+              else do
+                el <- atomically $ readTChan chan
+                putStrLn [qm| el = {el} |]
+                showChan
+      showChan
+
 -}

@@ -41,7 +41,6 @@ gsTest =
           , _animateRequired = False
           , _animationMode = AnimationDo
           , _message = ""
-          , _isCalculating = False
           , _progress = ""
           }
     }

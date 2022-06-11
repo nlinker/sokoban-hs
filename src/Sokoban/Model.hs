@@ -97,7 +97,6 @@ data ViewState =
     , _animateRequired :: !Bool
     , _animationMode   :: !AnimationMode
     , _message         :: !T.Text
-    , _isCalculating   :: !Bool
     , _progress        :: !T.Text
     }
   deriving (Eq, Show)
@@ -159,10 +158,7 @@ makePrisms ''UndoItem
 makeLenses ''SolverContext
 
 data Action
-  = Up
-  | Down
-  | Right
-  | Left
+  = Move Direction
   | Undo
   | Redo
   | Restart
@@ -172,8 +168,6 @@ data Action
   | SelectWorker
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
-  | StartTimer
-  | CancelTimer
   | ToggleDebugMode
   deriving (Eq, Show)
 
@@ -183,10 +177,7 @@ step gameState action = (execState $ runStep action) gameState
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
   case action of
-    Up                -> moveWorker (toDirection action) True
-    Down              -> moveWorker (toDirection action) True
-    Left              -> moveWorker (toDirection action) True
-    Right             -> moveWorker (toDirection action) True
+    Move dir          -> moveWorker dir True
     Restart           -> restartLevel
     Undo              -> undoMoveWorker
     Redo              -> redoMoveWorker
@@ -197,8 +188,6 @@ runStep action = do
     SelectWorker      -> computeWorkerReachability
     SelectBox box     -> computeBoxReachability box
     ToggleDebugMode   -> toggleDebugMode
-    StartTimer        -> startTimer
-    CancelTimer       -> cancelTimer
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()
@@ -235,13 +224,13 @@ toggleDebugMode = do
   setDebugModeM $ not dm
   viewState . message .= [qm| Set debug mode: {dm} -> {not dm}|]
 
-startTimer :: MonadState GameState m => m ()
-startTimer = viewState . isCalculating .= True
-
-cancelTimer :: MonadState GameState m => m ()
-cancelTimer = do
-  viewState . isCalculating .= False
-  viewState . progress .= ""
+--startTimer :: MonadState GameState m => m ()
+--startTimer = viewState . isCalculating .= True
+--
+--cancelTimer :: MonadState GameState m => m ()
+--cancelTimer = do
+--  viewState . isCalculating .= False
+--  viewState . progress .= ""
 
 restartLevel :: MonadState GameState m => m ()
 restartLevel = do
@@ -778,15 +767,6 @@ cachingFindPath ctx walls d src dst = do
 
 isAccessible :: MonadState GameState m => Point -> m Bool
 isAccessible p = isEmptyOrGoal <$> getCell p
-
-toDirection :: Action -> Direction
-toDirection a =
-  case a of
-    Up    -> U
-    Down  -> D
-    Left  -> L
-    Right -> R
-    _     -> error $ "Should not happen: " <> show a
 
 directWorker :: Direction -> Cell -> Cell
 directWorker d cw =
