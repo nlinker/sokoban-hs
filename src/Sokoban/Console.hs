@@ -9,6 +9,7 @@
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Sokoban.Console where
 
@@ -18,7 +19,7 @@ import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM     (TChan, TVar, atomically, isEmptyTChan, newTChanIO, newTVar,
                                    newTVarIO, readTChan, readTVar, writeTChan, writeTVar)
 import Control.Exception          (finally)
-import Control.Lens               (Lens', lens, use, (%=), (%~), (&), (.=), (.~), (^.))
+import Control.Lens               (Lens', lens, use, (%=), (%~), (&), (.=), (.~), (^.), (?~))
 import Control.Monad              (forM_, replicateM_, unless, when)
 import Control.Monad.Primitive    (PrimMonad)
 import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
@@ -36,7 +37,7 @@ import Sokoban.Model              (AnimationMode(..), GameState(..), SolverConte
                                    eraseBoxes, getCell, height, id, initialLevelState, isComplete,
                                    levelState, levelState, message, moveCount, progress, pushCount,
                                    stats, step, undoIndex, undoMove, undoStack, viewState, width,
-                                   _UndoItem)
+                                   _UndoItem, threadIds)
 import Sokoban.Parser             (parseLevels, splitWith)
 import Sokoban.Resources          (testCollection, yoshiroAutoCollection)
 import Sokoban.Solver             (AStarSolver)
@@ -58,6 +59,7 @@ data Command
   = CmdAction A.Action
   | CmdMouseClick (Point, Bool)
   | CmdTick
+  | CmdFinish [Direction]
   deriving (Eq, Show)
 
 animationTickDelay :: Int
@@ -144,6 +146,7 @@ buildGameState args = do
             , _animationMode = AnimationDo
             , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
             , _progress = ""
+            , _threadIds = []
             }
       }
 
@@ -181,11 +184,22 @@ gameLoop chan gs0 = do
   cmd <- atomically $ readTChan chan
   gs1 <-
     case cmd of
-      CmdAction action -> return $ step gs0 action
+      CmdAction A.CancelCalc -> do
+        forM_ (gs0 ^. viewState . threadIds) killThread
+        return gs0
       CmdMouseClick click ->
         case interpretClick gs0 click of
+          (Just action@(A.MoveBoxes src dst), gs) -> do
+            tid1 <- forkIO $ progressLoop chan
+            tid2 <- forkIO $ calculate chan gs  
+            let gs' = gs & viewState . threadIds .~ [tid1, tid2]
+            return $ step gs' action
           (Just action, gs) -> return $ step gs action
           (Nothing, gs)     -> return gs
+      CmdFinish dirs -> do
+        
+        return gs0
+      CmdAction action -> return $ step gs0 action
       CmdTick -> return $ gs0 & viewState . progress %~ (<> ".")
   -- perform animation if needed
   gs2 <-
@@ -198,6 +212,19 @@ gameLoop chan gs0 = do
       clearScreen
       return $ gs2 & viewState . doClearScreen .~ False
   gameLoop chan gs3
+
+progressLoop :: TChan Command -> IO ()
+progressLoop chan = do
+  threadDelay 1_000_000 -- 1 second
+  atomically $ writeTChan chan CmdTick
+  progressLoop chan
+
+calculate :: TChan Command -> GameState -> IO ()
+calculate chan _gs = do
+  putStrLn "Starting calculate ..."
+  threadDelay 60_000_000 -- 60 second
+  atomically $ writeTChan chan (CmdFinish [])
+  putStrLn "Finished calculate ..."
 
 animate :: GameState -> GameState -> IO ()
 animate gsFrom gsTo = do

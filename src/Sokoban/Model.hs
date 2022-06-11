@@ -52,6 +52,7 @@ import qualified Data.Vector                as V
 import qualified Data.Vector.Unboxed        as VU
 import qualified Sokoban.Level              as L (cells, height, id, width)
 import qualified Text.Builder               as TB
+import Control.Concurrent (ThreadId)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -98,6 +99,7 @@ data ViewState =
     , _animationMode   :: !AnimationMode
     , _message         :: !T.Text
     , _progress        :: !T.Text
+    , _threadIds       :: ![ThreadId] 
     }
   deriving (Eq, Show)
 
@@ -168,6 +170,7 @@ data Action
   | SelectWorker
   | MoveBoxes [Point] [Point]
   | MoveWorker Point
+  | CancelCalc
   | ToggleDebugMode
   deriving (Eq, Show)
 
@@ -188,6 +191,7 @@ runStep action = do
     SelectWorker      -> computeWorkerReachability
     SelectBox box     -> computeBoxReachability box
     ToggleDebugMode   -> toggleDebugMode
+    CancelCalc        -> pure () -- noop
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()

@@ -42,6 +42,7 @@ gsTest =
           , _animationMode = AnimationDo
           , _message = ""
           , _progress = ""
+          , _threadIds = []
           }
     }
 
@@ -50,14 +51,14 @@ spec = do
   describe "mouse click interpretation" $ do
     it "worker move" $ do
       render gsTest
-      second (^. viewState) (interpretClick gsTest (fromJust $ extractMouseClick $ mouse 1 1)) `shouldBe` (Nothing, gsTest ^. viewState)
-      second (^. viewState) (interpretClick gsTest (fromJust $ extractMouseClick $ mouse 3 1)) `shouldBe`
+      second (^. viewState) (interpretClick gsTest (mouse 1 1)) `shouldBe` (Nothing, gsTest ^. viewState)
+      second (^. viewState) (interpretClick gsTest (mouse 3 1)) `shouldBe`
         (Just (A.MoveWorker (Point 3 1)), gsTest ^. viewState)
-      second (^. viewState) (interpretClick gsTest (fromJust $ extractMouseClick $ mouse 1 2)) `shouldBe`
+      second (^. viewState) (interpretClick gsTest (mouse 1 2)) `shouldBe`
         (Just (A.MoveWorker (Point 1 2)), gsTest ^. viewState)
       let vs = gsTest ^. viewState
-      let (a1, gs1) = interpretClick gsTest (fromJust $ extractMouseClick $ mouse 2 2)
-      let (a2, gs2) = interpretClick gs1 (fromJust $ extractMouseClick $ mouse 2 3)
+      let (a1, gs1) = interpretClick gsTest (mouse 2 2)
+      let (a2, gs2) = interpretClick gs1 (mouse 2 3)
       (a1, gs1 ^. viewState) `shouldBe` (Just (A.SelectBox (Point 2 2)), vs & clicks .~ [Point 2 2])
       (a2, gs2 ^. viewState) `shouldBe` (Just (A.MoveBoxes [Point 2 2] [Point 2 3]), vs & clicks .~ [])
     it "1 box move" $ gsTest `shouldBe` gsTest
@@ -124,7 +125,8 @@ spec = do
       let codes = [0 .. 7 * 7 * 7 * 7 * 8 - 1]
       map (ppd2kMN m n . k2ppdMN m n) codes `shouldBe` codes
   where
-    mouse (i :: Int) (j :: Int) = "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
+    mouse (i :: Int) (j :: Int) = fromJust $ extractMouseClick $
+      "\ESC[<0;" <> show (j * 2 + 3) <> ";" <> show (i + 2) <> "m"
     breadFirstTest :: Point -> [Point]
     breadFirstTest src =
       let placeholder = Point 0 0
