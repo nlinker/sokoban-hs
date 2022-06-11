@@ -11,12 +11,12 @@ import Control.Monad.ST.Strict    (runST)
 import Control.Monad.State        (evalState)
 import Control.Monad.State.Strict (StateT, evalStateT)
 import Data.Maybe                 (fromJust)
-import Sokoban.Console            (interpretClick, render)
+import Sokoban.Console            (interpretClick, render, extractMouseClick)
 import Sokoban.Level              (Cell(..), Direction(..), Point(..), fromCell, isEmptyOrGoal,
                                    levels, movePoint, toCell)
 import Sokoban.Model              (AnimationMode(AnimationDo), GameState(..), ViewState(..), clicks,
                                    getCell, height, initialLevelState, k2pdN, k2ppdMN, levelState,
-                                   pathToDirections, pd2kN, ppd2kMN, viewState, width, worker)
+                                   convPathToDirections, pd2kN, ppd2kMN, viewState, width, worker)
 import Sokoban.Resources          (yoshiroAutoCollection)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 
@@ -50,14 +50,14 @@ spec = do
   describe "mouse click interpretation" $ do
     it "worker move" $ do
       render gsTest
-      second (^. viewState) (interpretClick gsTest (mouse 1 1)) `shouldBe` (Nothing, gsTest ^. viewState)
-      second (^. viewState) (interpretClick gsTest (mouse 3 1)) `shouldBe`
+      second (^. viewState) (interpretClick gsTest (fromJust $ extractMouseClick $ mouse 1 1)) `shouldBe` (Nothing, gsTest ^. viewState)
+      second (^. viewState) (interpretClick gsTest (fromJust $ extractMouseClick $ mouse 3 1)) `shouldBe`
         (Just (A.MoveWorker (Point 3 1)), gsTest ^. viewState)
-      second (^. viewState) (interpretClick gsTest (mouse 1 2)) `shouldBe`
+      second (^. viewState) (interpretClick gsTest (fromJust $ extractMouseClick $ mouse 1 2)) `shouldBe`
         (Just (A.MoveWorker (Point 1 2)), gsTest ^. viewState)
       let vs = gsTest ^. viewState
-      let (a1, gs1) = interpretClick gsTest (mouse 2 2)
-      let (a2, gs2) = interpretClick gs1 (mouse 2 3)
+      let (a1, gs1) = interpretClick gsTest (fromJust $ extractMouseClick $ mouse 2 2)
+      let (a2, gs2) = interpretClick gs1 (fromJust $ extractMouseClick $ mouse 2 3)
       (a1, gs1 ^. viewState) `shouldBe` (Just (A.SelectBox (Point 2 2)), vs & clicks .~ [Point 2 2])
       (a2, gs2 ^. viewState) `shouldBe` (Just (A.MoveBoxes [Point 2 2] [Point 2 3]), vs & clicks .~ [])
     it "1 box move" $ gsTest `shouldBe` gsTest
@@ -77,16 +77,16 @@ spec = do
   describe "path conversion" $ do
     it "convert normal" $ do
       let points = [Point 5 3, Point 5 2, Point 4 2, Point 4 1, Point 3 1, Point 2 1]
-      pathToDirections points `shouldBe` [L, U, L, U, U]
+      convPathToDirections points `shouldBe` [L, U, L, U, U]
     it "convert with gap" $ do
       let points = [Point 5 3, Point 5 2, Point 3 1, Point 4 1, Point 3 1, Point 2 1]
-      pathToDirections points `shouldBe` [L]
+      convPathToDirections points `shouldBe` [L]
     it "convert single point" $ do
       let points = [Point 5 3]
-      pathToDirections points `shouldBe` []
+      convPathToDirections points `shouldBe` []
     it "convert empty" $ do
       let points = []
-      pathToDirections points `shouldBe` []
+      convPathToDirections points `shouldBe` []
   describe "compute move access area" $ do
     it "bottom left area" $ do
       let area = S.fromList [Point 5 3, Point 5 2, Point 4 1, Point 4 2, Point 2 1, Point 3 1, Point 5 4, Point 3 2]

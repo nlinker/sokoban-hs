@@ -183,7 +183,7 @@ runStep action = do
     Redo              -> redoMoveWorker
     PrevLevel         -> switchLevel (negate 1)
     NextLevel         -> switchLevel (0 + 1)
-    MoveWorker dst    -> moveWorkerAlongPath dst
+    MoveWorker dst    -> moveWorkerToThePoint dst
     MoveBoxes src dst -> moveBoxesByWorker src dst
     SelectWorker      -> computeWorkerReachability
     SelectBox box     -> computeBoxReachability box
@@ -363,8 +363,8 @@ moveWorker d storeUndo = do
         levelState . undoStack .= UndoItem [diff] : drop uidx (ls ^. undoStack)
         levelState . undoIndex .= 0
 
-moveWorkerAlongPath :: MonadState GameState m => Point -> m ()
-moveWorkerAlongPath dst = do
+moveWorkerToThePoint :: MonadState GameState m => Point -> m ()
+moveWorkerToThePoint dst = do
   src <- use (levelState . worker)
   gs <- get
   let m = gs ^. levelState . height
@@ -375,7 +375,7 @@ moveWorkerAlongPath dst = do
           let ctx = SolverContext pc m n
           solver <- buildMoveSolver ctx dst []
           flip evalStateT gs $ aStarFind solver src
-  diffs' <- sequenceA <$> mapM doMove (pathToDirections dirs)
+  diffs' <- sequenceA <$> mapM doMove (convPathToDirections dirs)
   case diffs' of
     Nothing -> return ()
     Just [] -> return ()
@@ -478,7 +478,7 @@ tryMove1Box s t = do
         let ctx = SolverContext hm m n
         pushSolver <- buildPushSolver ctx dst
         pds <- flip evalStateT gs $ aStarFind pushSolver src
-        return $ pushPathToDirections pds
+        return $ convPushPathToDirections pds
   let nePaths = filter (not . null) paths
   let selected =
         if null nePaths
@@ -501,7 +501,7 @@ tryMove2Boxes ss ts = do
         let ctx = SolverContext hm m n
         pushSolver <- buildPushSolver2 ctx (t1, t2)
         ppds <- flip evalStateT gs $ aStarFind pushSolver src
-        return $ pushPathToDirections2 ppds
+        return $ convPushPathToDirections2 ppds
   let nePaths = filter (not . null) paths
   let selected =
         if null nePaths
@@ -549,7 +549,7 @@ findBoxDirections gs box =
                       else return []
               mapM (\d -> tryBuildPath w (movePoint box $ opposite d)) [U, D, L, R]
     let augPaths = zip [U, D, L, R] paths
-    let dirPoints = uncurry (PD box) . second pathToDirections <$> filter (not . null . snd) augPaths
+    let dirPoints = uncurry (PD box) . second convPathToDirections <$> filter (not . null . snd) augPaths
     return dirPoints
 
 findBoxDirections2 :: GameState -> (Point, Point) -> [PPD]
@@ -572,7 +572,7 @@ findBoxDirections2 gs (box1, box2) =
             runMaybeT $ do
               _acc <- MaybeT $ accessibleToMaybe <$> isAccessible dst
               path <- MaybeT $ pathToMaybe <$> tryBuildPath ctx w dst
-              let dirs = pathToDirections path
+              let dirs = convPathToDirections path
               return $ PPD box1 box2 d i dirs
         return $ catMaybes ppds'
   where
@@ -654,7 +654,7 @@ buildPushSolver ctx dst = do
       let tryBuildPath src dst = do
             accessible <- isAccessible dst
             if accessible
-              then pathToDirections <$> cachingFindPath ctx [p0] d0 src dst
+              then convPathToDirections <$> cachingFindPath ctx [p0] d0 src dst
               else return []
       -- cont is the "continue push in the direction d0" neighbor
       -- src is the position of the worker for the push
@@ -726,7 +726,7 @@ pdNeighbor ctx pd d = do
       if null points
         then return Nothing
         else do
-          let dirs = pathToDirections points <> [d]
+          let dirs = convPathToDirections points <> [d]
           return $ Just $ PD p2 d dirs
 
 -- PD Point Direction [Direction]
@@ -749,7 +749,7 @@ ppdNeighbor ctx ppd d i = do
           --λ> ppd & ppdIdx .~ 0 & selector .~ p --> (0∙0 8∙4 R 0 [])
           --λ> ppd & ppdIdx .~ 1 & selector .~ p --> (7∙4 0∙0 R 1 [])
         else do
-          let dirs = pathToDirections points <> [d]
+          let dirs = convPathToDirections points <> [d]
           return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p2 & ppdDir .~ d & ppdDirs .~ dirs
 
 cachingFindPath ::
@@ -911,8 +911,8 @@ showState gs =
         Empty          -> TB.char ' '
         Wall           -> TB.char '#'
 
-pathToDirections :: [Point] -> [Direction]
-pathToDirections ps = reverse $ convert ps []
+convPathToDirections :: [Point] -> [Direction]
+convPathToDirections ps = reverse $ convert ps []
   where
     convert [] _acc = []
     convert [_] acc = acc
@@ -921,11 +921,11 @@ pathToDirections ps = reverse $ convert ps []
         Nothing -> acc
         Just d  -> convert (p2 : ps) (d : acc)
 
-pushPathToDirections :: [PD] -> [Direction]
-pushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
+convPushPathToDirections :: [PD] -> [Direction]
+convPushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
 
-pushPathToDirections2 :: [PPD] -> [Direction]
-pushPathToDirections2 ppds = reverse $ foldl' (\acc ppd -> reverse (ppd ^. ppdDirs) <> acc) [] ppds
+convPushPathToDirections2 :: [PPD] -> [Direction]
+convPushPathToDirections2 ppds = reverse $ foldl' (\acc ppd -> reverse (ppd ^. ppdDirs) <> acc) [] ppds
 
 point2kN :: Int -> Point -> Int
 point2kN n (Point i j) = i * n + j
