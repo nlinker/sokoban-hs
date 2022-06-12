@@ -20,7 +20,8 @@ import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
 import Control.Arrow              (second)
-import Control.Concurrent.Async   (forConcurrently, mapConcurrently)
+import Control.Concurrent         (ThreadId(..))
+import Control.Concurrent.Async   (forConcurrently)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
 import Control.Lens.TH            (makeLenses, makePrisms)
@@ -35,7 +36,6 @@ import Data.Foldable              (foldl', minimumBy)
 import Data.Maybe                 (catMaybes)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
-import Debug.Trace                (traceM)
 import Sokoban.Debug              (getDebugModeM, setDebugModeM)
 import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
@@ -43,7 +43,7 @@ import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollecti
                                    ppdSelector, ppdSnd, w8FromDirection, w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import System.IO.Unsafe           (unsafePerformIO)
-import Text.InterpolatedString.QM (qm)
+import Text.InterpolatedString.QM (qm, qms)
 
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet               as S
@@ -52,7 +52,6 @@ import qualified Data.Vector                as V
 import qualified Data.Vector.Unboxed        as VU
 import qualified Sokoban.Level              as L (cells, height, id, width)
 import qualified Text.Builder               as TB
-import Control.Concurrent (ThreadId)
 
 type MatrixCell = Vector (Vector Cell)
 
@@ -99,14 +98,8 @@ data ViewState =
     , _animationMode   :: !AnimationMode
     , _message         :: !T.Text
     , _progress        :: !T.Text
-    , _threadIds       :: ![ThreadId] 
     }
   deriving (Eq, Show)
-
--- TODO convert these flags above to Command queue
-data Command
-  = ClearScreen
-  | ShowAnimation
 
 data Stats =
   Stats
@@ -122,6 +115,29 @@ data GameState =
     , _levelState :: !LevelState
     , _viewState  :: !ViewState
     }
+  deriving (Eq)
+
+data Action
+  = Move Direction
+  | Undo
+  | Redo
+  | Restart
+  | PrevLevel
+  | NextLevel
+  | SelectBox Point
+  | SelectWorker
+  | MoveBoxesStart [Point] [Point]
+  | MoveBoxesFinish [Direction]
+  | MoveBoxesCancel
+  | MoveWorker Point
+  | Cancel
+  | ToggleDebugMode
+  deriving (Eq, Show)
+
+data Command
+  = CmdStart Action
+  | CmdCancel
+  | CmdFinish [Direction]
   deriving (Eq, Show)
 
 data FlatLevelState =
@@ -159,20 +175,13 @@ makePrisms ''UndoItem
 
 makeLenses ''SolverContext
 
-data Action
-  = Move Direction
-  | Undo
-  | Redo
-  | Restart
-  | PrevLevel
-  | NextLevel
-  | SelectBox Point
-  | SelectWorker
-  | MoveBoxes [Point] [Point]
-  | MoveWorker Point
-  | CancelCalc
-  | ToggleDebugMode
-  deriving (Eq, Show)
+instance Show GameState where
+  show gs =
+    [qms| GameState \{
+      _index = {gs ^. index},
+      _levelState = {gs ^. levelState},
+      _viewState = {gs ^. viewState}
+    \}|]
 
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
@@ -180,18 +189,19 @@ step gameState action = (execState $ runStep action) gameState
 runStep :: MonadState GameState m => Action -> m ()
 runStep action = do
   case action of
-    Move dir          -> moveWorker dir True
-    Restart           -> restartLevel
-    Undo              -> undoMoveWorker
-    Redo              -> redoMoveWorker
-    PrevLevel         -> switchLevel (negate 1)
-    NextLevel         -> switchLevel (0 + 1)
-    MoveWorker dst    -> moveWorkerToThePoint dst
-    MoveBoxes src dst -> moveBoxesByWorker src dst
-    SelectWorker      -> computeWorkerReachability
-    SelectBox box     -> computeBoxReachability box
-    ToggleDebugMode   -> toggleDebugMode
-    CancelCalc        -> pure () -- noop
+    Move dir             -> moveWorker dir True
+    Restart              -> restartLevel
+    Undo                 -> undoMoveWorker
+    Redo                 -> redoMoveWorker
+    PrevLevel            -> switchLevel (negate 1)
+    NextLevel            -> switchLevel (0 + 1)
+    MoveWorker dst       -> moveWorkerToThePoint dst
+    MoveBoxesStart _ _   -> pure ()
+    MoveBoxesFinish dirs -> moveBoxesByWorkerFinish dirs
+    MoveBoxesCancel      -> pure ()
+    SelectWorker         -> computeWorkerReachability
+    SelectBox box        -> computeBoxReachability box
+    ToggleDebugMode      -> toggleDebugMode
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()
@@ -235,7 +245,6 @@ toggleDebugMode = do
 --cancelTimer = do
 --  viewState . isCalculating .= False
 --  viewState . progress .= ""
-
 restartLevel :: MonadState GameState m => m ()
 restartLevel = do
   originCells <- use (levelState . origin)
@@ -438,24 +447,26 @@ computeBoxReachability box = do
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
 
-moveBoxesByWorker :: MonadState GameState m => [Point] -> [Point] -> m ()
-moveBoxesByWorker src dst = do
-  dirs <-
-    case (src, dst) of
-      ([s], [t]) -> do
-        erasedGs <- gets $ eraseBoxes [s]
-        -- erase source box not to break path finding and avoid spoiling of the current gs
-        let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
-        -- viewState . message .= (dbgGs ^. viewState . message)
-        -- viewState . doClearScreen .= True
-        return dirs
-      ([s1, s2], [t1, t2]) -> do
-        erasedGs <- gets $ eraseBoxes [s1, s2]
-        let (dirs, _dbgGs) = runState (tryMove2Boxes [s1, s2] [t1, t2]) erasedGs
-        -- viewState . message .= (dbgGs ^. viewState . message)
-        -- viewState . doClearScreen .= True
-        return dirs
-      _ -> return []
+moveBoxesByWorkerCalc :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
+moveBoxesByWorkerCalc src dst =
+  case (src, dst) of
+    ([s], [t]) -> do
+      erasedGs <- gets $ eraseBoxes [s]
+      -- erase source box not to break path finding and avoid spoiling of the current gs
+      let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
+      -- viewState . message .= (dbgGs ^. viewState . message)
+      -- viewState . doClearScreen .= True
+      return dirs
+    ([s1, s2], [t1, t2]) -> do
+      erasedGs <- gets $ eraseBoxes [s1, s2]
+      let (dirs, _dbgGs) = runState (tryMove2Boxes [s1, s2] [t1, t2]) erasedGs
+      -- viewState . message .= (dbgGs ^. viewState . message)
+      -- viewState . doClearScreen .= True
+      return dirs
+    _ -> return []
+
+moveBoxesByWorkerFinish :: MonadState GameState m => [Direction] -> m ()
+moveBoxesByWorkerFinish dirs = do
   diffs' <- sequenceA <$> mapM doMove dirs
   case diffs' of
     Nothing -> return ()

@@ -14,8 +14,10 @@ library:
     - src
   exposed-modules:
     - Sokoban.Console
+    - Sokoban.Data
     - Sokoban.Debug
     - Sokoban.Example
+    - Sokoban.Keys
     - Sokoban.Level
     - Sokoban.Model
     - Sokoban.Parser
