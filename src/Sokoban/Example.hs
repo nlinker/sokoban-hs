@@ -4,27 +4,32 @@
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE Rank2Types #-}
 
 module Sokoban.Example where
 
 import Prelude hiding (id)
 
 import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
-import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO, newTVar, newTVarIO,
+import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO, newTVarIO,
                                    readTChan, readTVar, writeTChan, writeTVar)
 import Control.Lens               ((%=), (%~), (&), (.~), (?~), (^.))
 import Control.Lens.TH            (makeLenses)
-import Control.Monad              (forM_, when)
-import Control.Monad.State.Strict (MonadState, evalState, execState)
-import Data.IORef                 (newIORef, readIORef, writeIORef)
+import Control.Monad.State.Strict (MonadState, evalState, execState, execStateT, StateT, State, runState, runStateT)
 import Sokoban.Level              (Direction(..))
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
-import System.IO.Unsafe           (unsafePerformIO)
 import Text.InterpolatedString.QM (qms)
+import Control.Exception          (finally)
+import Sokoban.Keys (keyLoop)
+import Control.Monad.Writer.Strict (WriterT, tell, runWriterT, execWriterT)
+import Control.Monad.Random.Strict (StdGen, Rand)
+import Control.Monad.Reader (ReaderT)
+import Control.Monad.Trans.Maybe (MaybeT)
+import Control.Monad.Identity (Identity, runIdentity)
 
-import           Control.Exception (finally)
 import qualified Data.Text         as T
 import qualified Data.Text.IO      as T
+import qualified Sokoban.Keys as K
 
 data GameState =
   GameState
@@ -33,7 +38,6 @@ data GameState =
     , _txt      :: T.Text
     , _progress :: Int
     , _thread   :: Maybe ThreadId
-    , _commands :: [Command]
     }
   deriving (Eq, Ord, Show)
 
@@ -43,9 +47,12 @@ data Action
   | Stop
   deriving (Eq, Ord, Show)
 
-data Command
-  = CmdTick
-  | CmdAction Action
+data Message
+  = MsgKey K.Key
+  | MsgTick
+  deriving (Eq, Show)
+
+data Command = Command
   deriving (Eq, Ord, Show)
 
 makeLenses ''GameState
@@ -55,17 +62,17 @@ makeLenses ''GameState
 --backgroundThread = unsafePerformIO $ newTVarIO Nothing
 example :: IO ()
 example = do
-  let gs = GameState 0 0 "" 0 Nothing []
-  channel <- newTChanIO :: IO (TChan Command)
+  let gs = GameState 0 0 "" 0 Nothing
+  channel <- newTChanIO :: IO (TChan Message)
   tidTV <- newTVarIO Nothing :: IO (TVar (Maybe ThreadId))
   setupAll channel tidTV gs `finally` destroyAll tidTV
   where
-    setupAll :: TChan Command -> TVar (Maybe ThreadId) -> GameState -> IO ()
+    setupAll :: TChan Message -> TVar (Maybe ThreadId) -> GameState -> IO ()
     setupAll channel tidTV gs = do
       setupScreen
       tid <- forkIO $ gameLoop channel gs
       atomically $ writeTVar tidTV (Just tid)
-      keyLoop channel
+      keyLoop MsgKey channel
     destroyAll :: TVar (Maybe ThreadId) -> IO ()
     destroyAll tidTV = do
       Just tid <- atomically $ readTVar tidTV
@@ -78,70 +85,78 @@ example = do
       putStrLn "\ESC[?25l"
     destroyScreen = putStrLn "\ESC[?25h" -- show cursor
 
-keyLoop :: TChan Command -> IO ()
-keyLoop chan = do
-  key <- getKey
-  case key of
-    "\ESC[A" -> atomically $ writeTChan chan (CmdAction (Move U))
-    "\ESC[B" -> atomically $ writeTChan chan (CmdAction (Move D))
-    "\ESC[C" -> atomically $ writeTChan chan (CmdAction (Move L))
-    "\ESC[D" -> atomically $ writeTChan chan (CmdAction (Move R))
-    "s"      -> atomically $ writeTChan chan (CmdAction Start)
-    "\ESC"   -> atomically $ writeTChan chan (CmdAction Stop)
-    _        -> pure ()
-  keyLoop chan
-
-progressLoop :: TChan Command -> IO ()
+progressLoop :: TChan Message -> IO ()
 progressLoop chan = do
   threadDelay 1_000_000 -- 1 second
-  atomically $ writeTChan chan CmdTick
+  atomically $ writeTChan chan MsgTick
   progressLoop chan
 
 -- background <- newTVarIO Nothing :: IO (Maybe ThreadId)
-gameLoop :: TChan Command -> GameState -> IO ()
+gameLoop :: TChan Message -> GameState -> IO ()
 gameLoop chan gs = do
   render gs
-  cmd <- atomically $ readTChan chan
-  gs1 <- case cmd of
-          CmdAction Start -> do
+  message <- atomically $ readTChan chan
+  gs1 <- case message of
+          MsgKey (K.Letter 's') -> do
             tid <- forkIO $ progressLoop chan
             return $ gs & thread ?~ tid
-          CmdAction Stop ->
+          MsgKey K.Escape ->
             case gs ^. thread of
               Just tid -> do
                 killThread tid
                 return $ gs & thread .~ Nothing & progress .~ 0
               Nothing -> return gs
-          CmdAction action -> return $ step gs action
-          CmdTick -> return $ gs & progress %~ succ
+          MsgKey (K.Arrow dir) -> return $ step gs (dirToAction dir)
+          MsgKey _ -> return gs
+          MsgTick -> return $ gs & progress %~ succ
   gameLoop chan gs1
 
-step :: GameState -> Action -> GameState
-step state action = (execState $ runStep action) state
+dirToAction :: Direction -> Action
+dirToAction dir = case dir of
+    U -> Move dir
+    D -> Move dir
+    L -> Move dir
+    R -> Move dir
 
-runStep :: MonadState GameState m => Action -> m ()
+data Env = Env
+
+type SolverT a = MaybeT
+                    (WriterT [Command]
+                        (ReaderT Env
+                            (StateT GameState
+                                (Rand StdGen)))) a
+
+type App m a = WriterT [Command] (StateT GameState m) a
+
+step :: GameState -> Action -> GameState
+step gs action = runIdentity $ do
+  let app = runStep action :: App Identity ()
+  let (cmds, gs2) = runIdentity $ runStateT (execWriterT app) gs 
+  return gs2          
+
+runStep :: Monad m => Action -> App m ()
 runStep action =
   case action of
     Move d -> move d
     Start  -> start
     Stop   -> stop
 
-move :: MonadState GameState m => Direction -> m ()
+move :: Monad m => Direction -> App m ()
 move d =
-  case d of
+  case d of 
     U -> yyy %= pred
     D -> yyy %= succ
     L -> xxx %= succ
     R -> xxx %= pred
 
-start :: MonadState GameState m => m ()
-start = commands %= (CmdAction Start :)
+start :: Monad m => App m ()
+start = tell [Command]
 
-stop :: MonadState GameState m => m ()
-stop = commands %= (CmdAction Stop :)
+stop :: Monad m => App m ()
+stop = tell [Command]
 
 render :: GameState -> IO ()
-render gs = T.putStrLn [qms|state: x={gs ^. xxx} y={gs ^. yyy}: {gs ^. progress} {gs ^. commands}|]
+render gs = T.putStrLn [qms|state: x={gs ^. xxx} y={gs ^. yyy}: {gs ^. progress}|]
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""

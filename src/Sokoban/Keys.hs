@@ -8,25 +8,20 @@ import Sokoban.Parser         (splitWith)
 import System.IO              (hReady, stdin)
 import Text.Read              (readMaybe)
 
-data Message
-  = MsgKey Key
-  | MsgTick
-
 data Key
   = Arrow Direction
   | PageUp
   | PageDown
-  | LeftBracket
-  | RightBracket
-  | LetterU
-  | LetterI
-  | LetterR
-  | LetterD
   | Escape
+  | Letter Char
   | MouseClick (Point, Bool)
+  deriving (Eq, Show)
 
-keyLoop :: TChan Message -> IO ()
-keyLoop chan = do
+letters :: String
+letters = ['[', ']'] <> ['a' .. 'z']
+
+keyLoop :: (Key -> msg) -> TChan msg -> IO ()
+keyLoop toMsg chan = do
   key <- getKey
   let k' =
         case key of
@@ -36,21 +31,17 @@ keyLoop chan = do
           "\ESC[C" -> Just (Arrow R)
           "\ESC[5~" -> Just PageUp
           "\ESC[6~" -> Just PageDown
-          "[" -> Just LeftBracket
-          "]" -> Just RightBracket
-          "u" -> Just LetterU
-          "i" -> Just LetterI
-          "r" -> Just LetterR
-          "d" -> Just LetterD
           "\ESC" -> Just Escape
+          [l]
+            | l `elem` letters -> Just (Letter l)
           _ ->
             case extractMouseClick key of
               Just (point, lbmDown) -> Just (MouseClick (point, lbmDown))
               Nothing               -> Nothing
   case k' of
-    Just k  -> atomically $ writeTChan chan (MsgKey k)
+    Just k  -> atomically $ writeTChan chan (toMsg k)
     Nothing -> pure ()
-  keyLoop chan
+  keyLoop toMsg chan
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""
