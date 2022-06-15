@@ -7,6 +7,9 @@ import Sokoban.Level          (Direction(..), Point(..))
 import Sokoban.Parser         (splitWith)
 import System.IO              (hReady, stdin)
 import Text.Read              (readMaybe)
+import Control.Monad.Trans.Maybe (runMaybeT)
+import Control.Monad (join, forM_)
+import Data.Maybe (fromMaybe)
 
 data Key
   = Arrow Direction
@@ -20,8 +23,8 @@ data Key
 letters :: String
 letters = ['[', ']'] <> ['a' .. 'z']
 
-keyLoop :: (Key -> msg) -> TChan msg -> IO ()
-keyLoop toMsg chan = do
+keyLoop :: TChan msg -> (Key -> Maybe msg) -> IO ()
+keyLoop chan toMsg = do
   key <- getKey
   let k' =
         case key of
@@ -37,11 +40,12 @@ keyLoop toMsg chan = do
           _ ->
             case extractMouseClick key of
               Just (point, lbmDown) -> Just (MouseClick (point, lbmDown))
-              Nothing               -> Nothing
-  case k' of
-    Just k  -> atomically $ writeTChan chan (toMsg k)
-    Nothing -> pure ()
-  keyLoop toMsg chan
+              Nothing -> Nothing
+  forM_ (k' >>= toMsg) $ atomically . writeTChan chan
+  --  case toMsg =<< k' of
+  --    Just msg -> atomically $ writeTChan chan msg
+  --    Nothing -> pure ()
+  keyLoop chan toMsg
 
 getKey :: IO String
 getKey = reverse <$> getKey' ""

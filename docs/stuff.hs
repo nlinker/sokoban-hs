@@ -782,4 +782,7 @@ applyV x fn = atomically $ readTVar x >>= writeTVar x . fn
                 showChan
       showChan
 
+newtype App m a = App { runApp :: WriterT [Message] (StateT GameState m) a}
+  deriving (Functor, Monad, MonadWriter, MonadState)
+
 -}

@@ -84,7 +84,7 @@ run = do
       setupScreen
       tid <- forkIO $ gameLoop chan gs
       atomically $ writeTVar tvar (Just tid)
-      K.keyLoop MsgKey chan
+      K.keyLoop chan (Just . MsgKey)
     destroyAll tvar = do
       Just tid <- atomically $ readTVar tvar
       killThread tid
