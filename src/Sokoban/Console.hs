@@ -37,7 +37,7 @@ import Sokoban.Model              (AnimationMode(..), GameState(..), SolverConte
                                    levelState, levelState, message, moveCount, progress, pushCount,
                                    stats, step, undoIndex, undoMove, undoStack, viewState, width,
                                    _UndoItem)
-import Sokoban.Parser             (parseLevels, splitWith)
+import Sokoban.Parser             (parseLevels)
 import Sokoban.Resources          (testCollection)
 import Sokoban.Solver             (AStarSolver)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
@@ -46,7 +46,6 @@ import System.Environment         (getArgs)
 import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import System.IO.Unsafe           (unsafePerformIO)
 import Text.InterpolatedString.QM (qm, qms)
-import Text.Read                  (readMaybe)
 
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet               as S
@@ -54,7 +53,6 @@ import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
 import qualified Sokoban.Model              as A (Action(..))
 import qualified Sokoban.Keys               as K (Key(..), keyLoop)
-import qualified Sokoban.Keys               as M (Message(..))
 
 animationTickDelay :: Int
 animationTickDelay = 20 * 1000
@@ -68,13 +66,17 @@ whenWith a p runA =
     then runA
     else return a
 
+data Message
+  = MsgKey K.Key
+  | MsgTick
+
 -- | run console game
 run :: IO ()
 run = do
   setDebugModeM False
   args <- getArgs
   gs <- buildGameState args
-  chan <- newTChanIO :: IO (TChan M.Message)
+  chan <- newTChanIO :: IO (TChan Message)
   tvar <- newTVarIO Nothing :: IO (TVar (Maybe ThreadId))
   setupAll chan tvar gs `finally` destroyAll tvar
   where
@@ -82,7 +84,7 @@ run = do
       setupScreen
       tid <- forkIO $ gameLoop chan gs
       atomically $ writeTVar tvar (Just tid)
-      K.keyLoop chan
+      K.keyLoop MsgKey chan
     destroyAll tvar = do
       Just tid <- atomically $ readTVar tvar
       killThread tid
@@ -139,15 +141,15 @@ convertKeyToAction k = case k of
   K.Arrow dir    -> A.Move dir
   K.PageUp       -> A.PrevLevel
   K.PageDown     -> A.NextLevel
-  K.LeftBracket  -> A.PrevLevel
-  K.RightBracket -> A.NextLevel
-  K.LetterU      -> A.Undo
-  K.LetterI      -> A.Redo
-  K.LetterR      -> A.Restart
-  K.LetterD      -> A.ToggleDebugMode
+  K.Letter '['   -> A.PrevLevel
+  K.Letter ']'   -> A.NextLevel
+  K.Letter 'u'   -> A.Undo
+  K.Letter 'i'   -> A.Redo
+  K.Letter 'r'   -> A.Restart
+  K.Letter 'd'   -> A.ToggleDebugMode
   K.Escape       -> A.Cancel
 
-gameLoop :: TChan M.Message -> GameState -> IO ()
+gameLoop :: TChan Message -> GameState -> IO ()
 gameLoop chan gs0 = do
   unless False $ do
     moveCursorToOrigin
@@ -155,7 +157,7 @@ gameLoop chan gs0 = do
   msg <- atomically $ readTChan chan
   gs1 <-
     case msg of
-      M.MsgKey (K.MouseClick click) -> 
+      MsgKey (K.MouseClick click) -> 
         case interpretClick gs0 click of
           (Just action@(A.MoveBoxesStart _src _dst), gs) ->
 --            forM_ (gs0 ^. viewState . threadIds) killThread -- avoid leaking threads
@@ -166,10 +168,10 @@ gameLoop chan gs0 = do
               return gs
           (Just action, gs) -> return $ step gs action
           (Nothing, gs)     -> return gs
-      M.MsgKey K.Escape -> 
+      MsgKey K.Escape -> 
 --      forM_ (gs0 ^. viewState . threadIds) killThread
         return gs0
-      M.MsgKey key -> return $ step gs0 (convertKeyToAction key) 
+      MsgKey key -> return $ step gs0 (convertKeyToAction key) 
 --      CmdFinish dirs -> do
 --        forM_ (gs0 ^. viewState . threadIds) killThread
 --        return gs0
@@ -187,17 +189,17 @@ gameLoop chan gs0 = do
       return $ gs2 & viewState . doClearScreen .~ False
   gameLoop chan gs3
 
-progressLoop :: TChan M.Message -> IO ()
+progressLoop :: TChan Message -> IO ()
 progressLoop chan = do
   threadDelay 1_000_000 -- 1 second
-  atomically $ writeTChan chan M.MsgTick
+  atomically $ writeTChan chan MsgTick
   progressLoop chan
 
-calculate :: TChan M.Message -> GameState -> IO ()
+calculate :: TChan Message -> GameState -> IO ()
 calculate chan _gs = do
   putStrLn "Starting calculate ..."
   threadDelay 60_000_000 -- 60 second
-  atomically $ writeTChan chan (M.MsgKey K.Escape)
+  atomically $ writeTChan chan (MsgKey K.Escape)
   putStrLn "Finished calculate ..."
 
 animate :: GameState -> GameState -> IO ()
