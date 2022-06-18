@@ -31,7 +31,8 @@ import Data.List                   (foldl')
 import Debug.Trace                 (traceM)
 import Reactive.Banana             (compile)
 import Reactive.Banana.Combinators ()
-import Reactive.Banana.Frameworks  (fromAddHandler, newAddHandler, reactimate)
+import Reactive.Banana.Frameworks  (EventNetwork(..), MomentIO, fromAddHandler, newAddHandler,
+                                    reactimate)
 import Sokoban.Keys                (keyLoop)
 import Sokoban.Level               (Direction(..))
 import System.IO                   (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
@@ -41,6 +42,80 @@ import qualified Data.Text    as T
 import qualified Data.Text.IO as T
 import qualified Sokoban.Keys as K
 
+import Control.Monad (when)
+import Data.IORef
+import Data.List     (nub)
+import Data.Maybe    (fromJust, isJust)
+import Debug.Trace
+import System.IO
+import System.Random
+
+import Reactive.Banana
+import Reactive.Banana.Frameworks
+
+cmdLine :: IO ()
+cmdLine = do
+  displayHelpMessage
+  sources <- (,) <$> newAddHandler <*> newAddHandler
+  network <- setupNetwork sources
+  actuate network
+  eventLoop sources network
+
+displayHelpMessage :: IO ()
+displayHelpMessage =
+  mapM_ putStrLn
+  [ "Commands are:"
+  , "   count   - send counter event"
+  , "   pause   - pause event network"
+  , "   actuate - actuate event network"
+  , "   quit    - quit the program"
+  , ""
+  ]
+
+-- Read commands and fire corresponding events.
+eventLoop :: (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
+eventLoop (escounter, espause) network = loop
+  where
+    loop = do
+      putStr "> "
+      hFlush stdout
+      s <- getLine
+      case s of
+        "c" -> fire escounter ()
+        "p" -> fire espause network
+        "a" -> actuate network
+        "q" -> return ()
+        _   -> putStrLn $ s ++ " - unknown command"
+      when (s /= "q") loop
+
+{-----------------------------------------------------------------------------
+    Event sources
+------------------------------------------------------------------------------}
+-- Event Sources - allows you to register event handlers
+-- Your GUI framework should provide something like this for you
+type EventSource a = (AddHandler a, a -> IO ())
+
+addHandler :: EventSource a -> AddHandler a
+addHandler = fst
+
+fire :: EventSource a -> a -> IO ()
+fire = snd
+
+{-----------------------------------------------------------------------------
+    Program logic
+------------------------------------------------------------------------------}
+-- Set up the program logic in terms of events and behaviors.
+setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
+setupNetwork (escounter, espause) =
+  compile $ do
+    ecounter <- fromAddHandler (addHandler escounter)
+    epause <- fromAddHandler (addHandler espause)
+    ecount <- accumE 0 $ (+ 1) <$ ecounter
+    reactimate $ fmap print ecount
+    reactimate $ fmap pause epause
+
+{-
+echo1 :: IO Reactive.Banana.Frameworks.EventNetwork
 echo1 = do
   (inputHandler, inputFire) <- newAddHandler
   compile $ do
@@ -49,21 +124,22 @@ echo1 = do
     let inputEvent' = fmap (map toUpper) inputEvent
     let inputEventReaction = fmap putStrLn inputEvent' -- this has type `Event (IO ())
     reactimate inputEventReaction
-
-
+-}
 async1 :: IO ()
 async1 = do
-  a1 <- async $ do
-    putStrLn "Start a1"
-    threadDelay 3000000 -- 3 second
-    putStrLn "End a1"
-    return 33
+  a1 <-
+    async $ do
+      putStrLn "Start a1"
+      threadDelay 3000000 -- 3 second
+      putStrLn "End a1"
+      return 33
   putStrLn "Run next task"
-  a2 <- async $ do
-    putStrLn "Start a2"
-    threadDelay 2000000 -- 2 second
-    putStrLn "End a2"
-    return 22
+  a2 <-
+    async $ do
+      putStrLn "Start a2"
+      threadDelay 2000000 -- 2 second
+      putStrLn "End a2"
+      return 22
   x1 <- wait a1
   x2 <- wait a2
   putStrLn $ "x1 + x2 = " ++ show (x1 + x2)
@@ -207,7 +283,7 @@ runStep :: Monad m => Message -> App m ()
 runStep msg =
   case msg of
     MsgMoveStart d -> move d
-    _         -> return ()
+    _              -> return ()
 
 decodeKey :: K.Key -> Maybe Message
 decodeKey key =

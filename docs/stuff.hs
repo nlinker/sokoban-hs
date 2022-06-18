@@ -785,4 +785,14 @@ applyV x fn = atomically $ readTVar x >>= writeTVar x . fn
 newtype App m a = App { runApp :: WriterT [Message] (StateT GameState m) a}
   deriving (Functor, Monad, MonadWriter, MonadState)
 
+
+# if you want to use reflex add to stack.yaml
+#  - reflex-0.6.4
+#  - constraints-extras-0.3.0.2
+#  - dependent-map-0.3
+#  - dependent-sum-0.6.2.0
+#  - monoidal-containers-0.6.0.1
+#  - patch-0.0.3.1
+#  - ref-tf-0.4.0.2
+#  - witherable-0.3.1
 -}
