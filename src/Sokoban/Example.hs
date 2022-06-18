@@ -12,6 +12,7 @@ module Sokoban.Example where
 import Prelude hiding (id)
 
 import Control.Concurrent          (ThreadId, forkIO, killThread, threadDelay)
+import Control.Concurrent.Async    (Async, async, wait)
 import Control.Concurrent.STM      (TChan, TVar, atomically, newTChanIO, newTVarIO, readTChan,
                                     readTVar, writeTChan, writeTVar)
 import Control.Exception.Base      (bracket)
@@ -24,26 +25,21 @@ import Control.Monad.State.Strict  (MonadState, State, StateT, evalState, execSt
                                     get, runState, runStateT)
 import Control.Monad.Trans.Maybe   (MaybeT)
 import Control.Monad.Writer.Strict (MonadWriter, WriterT, execWriterT, runWriterT, tell)
+import Data.Char                   (toUpper)
+import Data.IORef                  (newIORef, readIORef, writeIORef)
+import Data.List                   (foldl')
+import Debug.Trace                 (traceM)
+import Reactive.Banana             (compile)
+import Reactive.Banana.Combinators ()
+import Reactive.Banana.Frameworks  (fromAddHandler, newAddHandler, reactimate)
 import Sokoban.Keys                (keyLoop)
 import Sokoban.Level               (Direction(..))
 import System.IO                   (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.InterpolatedString.QM  (qm, qms)
 
-import           Data.List    (foldl')
 import qualified Data.Text    as T
 import qualified Data.Text.IO as T
-import           Debug.Trace  (traceM)
 import qualified Sokoban.Keys as K
-
-import Data.IORef (newIORef, readIORef, writeIORef)
-
-import Data.Char       (toUpper)
-import Reactive.Banana (compile)
-
---import Reactive.Banana.Types ()
-import Reactive.Banana.Combinators ()
-import Reactive.Banana.Frameworks  (fromAddHandler, newAddHandler, reactimate)
-import Control.Concurrent.Async (Async)
 
 echo1 = do
   (inputHandler, inputFire) <- newAddHandler
@@ -53,6 +49,24 @@ echo1 = do
     let inputEvent' = fmap (map toUpper) inputEvent
     let inputEventReaction = fmap putStrLn inputEvent' -- this has type `Event (IO ())
     reactimate inputEventReaction
+
+
+async1 :: IO ()
+async1 = do
+  a1 <- async $ do
+    putStrLn "Start a1"
+    threadDelay 3000000 -- 3 second
+    putStrLn "End a1"
+    return 33
+  putStrLn "Run next task"
+  a2 <- async $ do
+    putStrLn "Start a2"
+    threadDelay 2000000 -- 2 second
+    putStrLn "End a2"
+    return 22
+  x1 <- wait a1
+  x2 <- wait a2
+  putStrLn $ "x1 + x2 = " ++ show (x1 + x2)
 
 data GameState =
   GameState
@@ -71,7 +85,7 @@ data GameState =
 -- 4. start calculation, show progress and at the finish, start the animation, cancel the animation
 -- 5. start calculation, show progress and at the finish, start the animation and wait for its finish
 data Message
-  = MsgMove Direction
+  = MsgMoveStart Direction
   | MsgCalcStart Direction
   | MsgCalcFinish GameState
   | MsgAnimateStart Direction Int GameState
@@ -86,8 +100,9 @@ data Event
 
 data StateIO =
   StateIO
-    { _channel :: TChan Message
-    , _pidsVar :: TVar [ThreadId]
+    { _msgChan  :: TChan Message
+    , _taskChan :: TChan (Async Message)
+    , _pidsVar  :: TVar [ThreadId]
     }
   deriving (Eq)
 
@@ -101,8 +116,8 @@ x = undefined
 -- bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
 example :: IO ()
 example = do
-  sio <- StateIO <$> newTChanIO <*> newTVarIO []
-  bracket (setupAll sio) destroyAll $ \_ -> keyLoop (sio ^. channel) decodeKey -- blocks forever
+  sio <- StateIO <$> newTChanIO <*> newTChanIO <*> newTVarIO []
+  bracket (setupAll sio) destroyAll $ \_ -> keyLoop (sio ^. msgChan) decodeKey -- blocks forever
   where
     setupAll :: StateIO -> IO ThreadId
     setupAll sio = do
@@ -117,19 +132,18 @@ example = do
       putStrLn "\ESC[?25h" -- show cursor
       killThread gameLoopTid
 
+-- let (msgs, gs1) = step gs (MsgMove d)
+-- forM_ (reverse msgs) $ \msg -> atomically $ writeTChan chan msg
 -- background <- newTVarIO Nothing :: IO (Maybe ThreadId)
 gameLoop :: StateIO -> GameState -> IO ()
 gameLoop sio gs = do
   render gs
-  let chan = sio ^. channel
+  let chan = sio ^. msgChan
   let pidsV = sio ^. pidsVar
   message <- atomically $ readTChan chan
   gs2 <-
     case message of
-      MsgMove d
-      -- let (msgs, gs1) = step gs (MsgMove d)
-      -- forM_ (reverse msgs) $ \msg -> atomically $ writeTChan chan msg
-       -> do
+      MsgMoveStart d -> do
         atomically $ writeTChan chan MsgCancel
         atomically $ writeTChan chan (MsgCalcStart d)
         return gs
@@ -192,13 +206,13 @@ step gs msg = runIdentity $ runStateT (execWriterT $ runStep msg) gs
 runStep :: Monad m => Message -> App m ()
 runStep msg =
   case msg of
-    MsgMove d -> move d
+    MsgMoveStart d -> move d
     _         -> return ()
 
 decodeKey :: K.Key -> Maybe Message
 decodeKey key =
   case key of
-    K.Arrow d -> Just (MsgMove d)
+    K.Arrow d -> Just (MsgMoveStart d)
     K.Escape  -> Just MsgCancel
     _         -> Nothing
 
