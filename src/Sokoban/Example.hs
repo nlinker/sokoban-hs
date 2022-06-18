@@ -5,6 +5,7 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE RecursiveDo #-}
 
 module Sokoban.Example where
 
@@ -28,12 +29,28 @@ import Sokoban.Level               (Direction(..))
 import System.IO                   (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.InterpolatedString.QM  (qm, qms)
 
-import           Control.Monad (forM_, void, when)
 import           Data.List     (foldl')
 import qualified Data.Text     as T
 import qualified Data.Text.IO  as T
 import           Debug.Trace   (traceM)
 import qualified Sokoban.Keys  as K
+
+import Data.IORef (newIORef, readIORef, writeIORef)
+
+--import Reactive.Banana.Types ()
+import Reactive.Banana.Combinators ()
+import Reactive.Banana.Frameworks (newAddHandler, fromAddHandler, reactimate)
+import Reactive.Banana (compile)
+import Data.Char (toUpper)
+
+echo1 = do
+    (inputHandler, inputFire) <- newAddHandler
+    compile $ do
+        inputEvent <- fromAddHandler inputHandler
+        -- turn all characters in the signal to upper case
+        let inputEvent' = fmap (map toUpper) inputEvent
+        let inputEventReaction = fmap putStrLn inputEvent' -- this has type `Event (IO ())
+        reactimate inputEventReaction
 
 data GameState =
   GameState
