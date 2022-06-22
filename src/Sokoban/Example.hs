@@ -53,9 +53,16 @@ import System.Random
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
+
 cmdLine :: IO ()
 cmdLine = do
   displayHelpMessage
+  -- newAddHandler :: IO (AddHandler a, Handler a)
+  -- newAddHandler :: Control.Event.Handler
+  -- setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
+  -- sources :: ((AddHandler (), Handler ()), (AddHandler EventNetwork, Handler EventNetwork))
+  -- actuate :: EventNetwork -> IO ()
+  -- eventLoop :: (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
   sources <- (,) <$> newAddHandler <*> newAddHandler
   network <- setupNetwork sources
   actuate network
@@ -74,45 +81,40 @@ displayHelpMessage =
 
 -- Read commands and fire corresponding events.
 eventLoop :: (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
-eventLoop (escounter, espause) network = loop
+eventLoop (counterEs, pauseEs) network = loop
   where
     loop = do
       putStr "> "
       hFlush stdout
       s <- getLine
       case s of
-        "c" -> fire escounter ()
-        "p" -> fire espause network
+        "c" -> fire counterEs ()
+        "p" -> fire pauseEs network
         "a" -> actuate network
         "q" -> return ()
         _   -> putStrLn $ s ++ " - unknown command"
       when (s /= "q") loop
 
-{-----------------------------------------------------------------------------
-    Event sources
-------------------------------------------------------------------------------}
+
 -- Event Sources - allows you to register event handlers
 -- Your GUI framework should provide something like this for you
 type EventSource a = (AddHandler a, a -> IO ())
+
+-- Set up the program logic in terms of events and behaviors.
+setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
+setupNetwork (counterEs, pauseEs) =
+  compile $ do
+    ecounter <- fromAddHandler (addHandler counterEs)
+    epause <- fromAddHandler (addHandler pauseEs)
+    ecount <- accumE 0 $ (+ 1) <$ ecounter
+    reactimate $ fmap print ecount
+    reactimate $ fmap pause epause
 
 addHandler :: EventSource a -> AddHandler a
 addHandler = fst
 
 fire :: EventSource a -> a -> IO ()
 fire = snd
-
-{-----------------------------------------------------------------------------
-    Program logic
-------------------------------------------------------------------------------}
--- Set up the program logic in terms of events and behaviors.
-setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
-setupNetwork (escounter, espause) =
-  compile $ do
-    ecounter <- fromAddHandler (addHandler escounter)
-    epause <- fromAddHandler (addHandler espause)
-    ecount <- accumE 0 $ (+ 1) <$ ecounter
-    reactimate $ fmap print ecount
-    reactimate $ fmap pause epause
 
 {-
 echo1 :: IO Reactive.Banana.Frameworks.EventNetwork
