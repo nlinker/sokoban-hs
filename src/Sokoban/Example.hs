@@ -53,35 +53,33 @@ import System.Random
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
+-- Event Sources - allows you to register event handlers
+-- Your GUI framework should provide something like this for you
+type EventSource a = (AddHandler a, a -> IO ())
+
+addHandler :: EventSource a -> AddHandler a
+addHandler = fst
+
+fire :: EventSource a -> a -> IO ()
+fire = snd
 
 cmdLine :: IO ()
 cmdLine = do
-  displayHelpMessage
   -- newAddHandler :: IO (AddHandler a, Handler a)
   -- newAddHandler :: Control.Event.Handler
   -- setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
   -- sources :: ((AddHandler (), Handler ()), (AddHandler EventNetwork, Handler EventNetwork))
   -- actuate :: EventNetwork -> IO ()
   -- eventLoop :: (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
+  chan <- newTChanIO :: IO (TChan Message)
   sources <- (,) <$> newAddHandler <*> newAddHandler
   network <- setupNetwork sources
   actuate network
-  eventLoop sources network
-
-displayHelpMessage :: IO ()
-displayHelpMessage =
-  mapM_ putStrLn
-  [ "Commands are:"
-  , "   count   - send counter event"
-  , "   pause   - pause event network"
-  , "   actuate - actuate event network"
-  , "   quit    - quit the program"
-  , ""
-  ]
+  eventLoop chan sources network
 
 -- Read commands and fire corresponding events.
-eventLoop :: (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
-eventLoop (counterEs, pauseEs) network = loop
+eventLoop :: TChan Message -> (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
+eventLoop chan (counterEs, pauseEs) network = loop
   where
     loop = do
       putStr "> "
@@ -96,10 +94,6 @@ eventLoop (counterEs, pauseEs) network = loop
       when (s /= "q") loop
 
 
--- Event Sources - allows you to register event handlers
--- Your GUI framework should provide something like this for you
-type EventSource a = (AddHandler a, a -> IO ())
-
 -- Set up the program logic in terms of events and behaviors.
 setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
 setupNetwork (counterEs, pauseEs) =
@@ -110,13 +104,18 @@ setupNetwork (counterEs, pauseEs) =
     reactimate $ fmap print ecount
     reactimate $ fmap pause epause
 
-addHandler :: EventSource a -> AddHandler a
-addHandler = fst
-
-fire :: EventSource a -> a -> IO ()
-fire = snd
-
 {-
+      message <- atomically $ readTChan chan
+      result <- case message of
+        MsgMoveStart dir         -> undefined
+        MsgCalcStart dir         -> undefined
+        MsgCalcFinish gs         -> undefined
+        MsgAnimateStart dir i gs -> undefined
+        MsgAnimateStop gs        -> undefined
+        MsgCancel                -> undefined
+        MsgTick                  -> undefined
+      loop
+
 echo1 :: IO Reactive.Banana.Frameworks.EventNetwork
 echo1 = do
   (inputHandler, inputFire) <- newAddHandler
@@ -127,6 +126,7 @@ echo1 = do
     let inputEventReaction = fmap putStrLn inputEvent' -- this has type `Event (IO ())
     reactimate inputEventReaction
 -}
+
 async1 :: IO ()
 async1 = do
   a1 <-
