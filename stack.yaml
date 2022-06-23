@@ -7,4 +7,3 @@ extra-deps:
   - cabal-info-0.1.0.0
   - impure-containers-0.5.0
   - STMonadTrans-0.4.4
-  - reactive-banana-1.2.1.0

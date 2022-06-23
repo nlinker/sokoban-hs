@@ -65,7 +65,6 @@ dependencies:
   - primitive
   - qm-interpolated-string
   - random
-  - reactive-banana
   - stm
   - STMonadTrans
   - template-haskell

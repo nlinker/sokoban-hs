@@ -1,11 +1,12 @@
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE NumericUnderscores  #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE QuasiQuotes         #-}
-{-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE RecursiveDo         #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE NumericUnderscores   #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE QuasiQuotes          #-}
+{-# LANGUAGE Rank2Types           #-}
+{-# LANGUAGE RecursiveDo          #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE FlexibleInstances    #-}
 
 module Sokoban.Example where
 
@@ -18,133 +19,17 @@ import Control.Concurrent.STM      (TChan, TVar, atomically, newTChanIO, newTVar
 import Control.Exception.Base      (bracket)
 import Control.Lens                ((%=), (%~), (&), (.~), (?~), (^.))
 import Control.Lens.TH             (makeLenses)
-import Control.Monad.Identity      (Identity, runIdentity)
-import Control.Monad.Random.Strict (Rand, StdGen)
-import Control.Monad.Reader        (ReaderT)
-import Control.Monad.State.Strict  (MonadState, State, StateT, evalState, execState, execStateT,
-                                    get, runState, runStateT)
-import Control.Monad.Trans.Maybe   (MaybeT)
-import Control.Monad.Writer.Strict (MonadWriter, WriterT, execWriterT, runWriterT, tell)
-import Data.Char                   (toUpper)
-import Data.IORef                  (newIORef, readIORef, writeIORef)
-import Data.List                   (foldl')
-import Debug.Trace                 (traceM)
-import Reactive.Banana             (compile)
-import Reactive.Banana.Combinators ()
-import Reactive.Banana.Frameworks  (EventNetwork(..), MomentIO, fromAddHandler, newAddHandler,
-                                    reactimate)
+import Control.Monad.Identity      (runIdentity)
+import Control.Monad.State.Strict  (StateT, runStateT)
+import Control.Monad.Writer.Strict (WriterT, execWriterT, runWriterT, tell)
 import Sokoban.Keys                (keyLoop)
 import Sokoban.Level               (Direction(..))
-import System.IO                   (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
 import Text.InterpolatedString.QM  (qm, qms)
+import System.IO
 
 import qualified Data.Text    as T
 import qualified Data.Text.IO as T
 import qualified Sokoban.Keys as K
-
-import Control.Monad (when)
-import Data.IORef
-import Data.List     (nub)
-import Data.Maybe    (fromJust, isJust)
-import Debug.Trace
-import System.IO
-import System.Random
-
-import Reactive.Banana
-import Reactive.Banana.Frameworks
-
--- Event Sources - allows you to register event handlers
--- Your GUI framework should provide something like this for you
-type EventSource a = (AddHandler a, a -> IO ())
-
-addHandler :: EventSource a -> AddHandler a
-addHandler = fst
-
-fire :: EventSource a -> a -> IO ()
-fire = snd
-
-cmdLine :: IO ()
-cmdLine = do
-  -- newAddHandler :: IO (AddHandler a, Handler a)
-  -- newAddHandler :: Control.Event.Handler
-  -- setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
-  -- sources :: ((AddHandler (), Handler ()), (AddHandler EventNetwork, Handler EventNetwork))
-  -- actuate :: EventNetwork -> IO ()
-  -- eventLoop :: (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
-  chan <- newTChanIO :: IO (TChan Message)
-  sources <- (,) <$> newAddHandler <*> newAddHandler
-  network <- setupNetwork sources
-  actuate network
-  eventLoop chan sources network
-
--- Read commands and fire corresponding events.
-eventLoop :: TChan Message -> (EventSource (), EventSource EventNetwork) -> EventNetwork -> IO ()
-eventLoop chan (counterEs, pauseEs) network = loop
-  where
-    loop = do
-      putStr "> "
-      hFlush stdout
-      s <- getLine
-      case s of
-        "c" -> fire counterEs ()
-        "p" -> fire pauseEs network
-        "a" -> actuate network
-        "q" -> return ()
-        _   -> putStrLn $ s ++ " - unknown command"
-      when (s /= "q") loop
-
-
--- Set up the program logic in terms of events and behaviors.
-setupNetwork :: (EventSource (), EventSource EventNetwork) -> IO EventNetwork
-setupNetwork (counterEs, pauseEs) =
-  compile $ do
-    ecounter <- fromAddHandler (addHandler counterEs)
-    epause <- fromAddHandler (addHandler pauseEs)
-    ecount <- accumE 0 $ (+ 1) <$ ecounter
-    reactimate $ fmap print ecount
-    reactimate $ fmap pause epause
-
-{-
-      message <- atomically $ readTChan chan
-      result <- case message of
-        MsgMoveStart dir         -> undefined
-        MsgCalcStart dir         -> undefined
-        MsgCalcFinish gs         -> undefined
-        MsgAnimateStart dir i gs -> undefined
-        MsgAnimateStop gs        -> undefined
-        MsgCancel                -> undefined
-        MsgTick                  -> undefined
-      loop
-
-echo1 :: IO Reactive.Banana.Frameworks.EventNetwork
-echo1 = do
-  (inputHandler, inputFire) <- newAddHandler
-  compile $ do
-    inputEvent <- fromAddHandler inputHandler
-        -- turn all characters in the signal to upper case
-    let inputEvent' = fmap (map toUpper) inputEvent
-    let inputEventReaction = fmap putStrLn inputEvent' -- this has type `Event (IO ())
-    reactimate inputEventReaction
--}
-
-async1 :: IO ()
-async1 = do
-  a1 <-
-    async $ do
-      putStrLn "Start a1"
-      threadDelay 3000000 -- 3 second
-      putStrLn "End a1"
-      return 33
-  putStrLn "Run next task"
-  a2 <-
-    async $ do
-      putStrLn "Start a2"
-      threadDelay 2000000 -- 2 second
-      putStrLn "End a2"
-      return 22
-  x1 <- wait a1
-  x2 <- wait a2
-  putStrLn $ "x1 + x2 = " ++ show (x1 + x2)
 
 data GameState =
   GameState
@@ -172,7 +57,7 @@ data Message
   | MsgTick
   deriving (Eq, Show)
 
-data Event
+data SoEvent
   = EvAnimateFinish GameState
   | Ev
 
