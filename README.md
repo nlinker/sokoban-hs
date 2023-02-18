@@ -6,7 +6,7 @@ Also the game should implement advanced move-ability control with reachability t
 are usually hard to implement in Haskell, but in this project it is achieved nevertheless, see
 [`Solver.hs`](src/Sokoban/Solver.hs) module.
 
-![](docs/demo.mp4)
+https://raw.githubusercontent.com/nlinker/sokoban-hs/master/docs/demo.mp4
 
 ### Installation and run
                         
