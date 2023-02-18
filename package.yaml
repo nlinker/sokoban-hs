@@ -57,10 +57,10 @@ dependencies:
   - deepseq
   - extra
   - hashable
-  - impure-containers
   - lens
   - MonadRandom
   - mtl
+  - mutable-containers
   - parallel
   - primitive
   - qm-interpolated-string

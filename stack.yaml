@@ -1,9 +1,8 @@
-resolver: lts-14.11
+resolver: lts-18.28
 
 packages:
 - '.'
 
 extra-deps:
   - cabal-info-0.1.0.0
-  - impure-containers-0.5.0
   - STMonadTrans-0.4.4
