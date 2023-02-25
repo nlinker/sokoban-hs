@@ -13,6 +13,9 @@ library:
   source-dirs:
     - src
   exposed-modules:
+    - Data.HashMap.Mutable.Basic
+    - Data.Heap.Mutable.ModelC
+    - Data.Heap.Mutable.ModelD
     - Sokoban.Console
     - Sokoban.Data
     - Sokoban.Debug
@@ -57,10 +60,10 @@ dependencies:
   - deepseq
   - extra
   - hashable
+  - ghc-prim
   - lens
   - MonadRandom
   - mtl
-  - mutable-containers
   - parallel
   - primitive
   - qm-interpolated-string

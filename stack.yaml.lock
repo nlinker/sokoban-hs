@@ -11,16 +11,9 @@ packages:
       size: 459
   original:
     hackage: cabal-info-0.1.0.0
-- completed:
-    hackage: STMonadTrans-0.4.4@sha256:437eec4fdf5f56e9cd4360e08ed7f8f9f5f02ff3f1d634a14dbc71e890035387,1946
-    pantry-tree:
-      sha256: 60c7ae0e1d9efb768ed969eda689adef56385712403e97ac2440ff7410216234
-      size: 403
-  original:
-    hackage: STMonadTrans-0.4.4
 snapshots:
 - completed:
-    sha256: 428ec8d5ce932190d3cbe266b9eb3c175cd81e984babf876b64019e2cbe4ea68
-    size: 590100
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/28.yaml
-  original: lts-18.28
+    sha256: adbc602422dde10cc330175da7de8609e70afc41449a7e2d6e8b1827aa0e5008
+    size: 649342
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/20/11.yaml
+  original: lts-20.11

@@ -1,0 +1,150 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 2cb088d23c36acbe0f99f45b3f896ba6253acb1fd39578b42f05924eb8c5039a
+
+name:           sokoban
+version:        0.1.0
+homepage:       https://github.com/nlinker/sokoban-hs#readme
+bug-reports:    https://github.com/nlinker/sokoban-hs/issues
+author:         Nick Linker <nlinker@gmail.com>
+maintainer:     Nick Linker <nlinker@gmail.com>
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/nlinker/sokoban-hs
+
+library
+  exposed-modules:
+      Data.HashMap.Mutable.Basic
+      Data.Heap.Mutable.ModelC
+      Data.Heap.Mutable.ModelD
+      Sokoban.Console
+      Sokoban.Data
+      Sokoban.Debug
+      Sokoban.Example
+      Sokoban.Keys
+      Sokoban.Level
+      Sokoban.Model
+      Sokoban.Parser
+      Sokoban.Resources
+      Sokoban.Solver
+      Helper
+  other-modules:
+      Paths_sokoban
+  hs-source-dirs:
+      src
+  ghc-options: -threaded -Wall -fno-warn-name-shadowing
+  build-depends:
+      Cabal
+    , MonadRandom
+    , STMonadTrans
+    , ansi-terminal
+    , async
+    , base
+    , bytestring
+    , deepseq
+    , extra
+    , ghc-prim
+    , hashable
+    , lens
+    , mtl
+    , parallel
+    , primitive
+    , qm-interpolated-string
+    , random
+    , stm
+    , template-haskell
+    , text
+    , text-builder
+    , transformers
+    , unordered-containers
+    , vector
+    , word8
+  default-language: Haskell2010
+
+executable sokoban
+  main-is: Main.hs
+  other-modules:
+      Paths_sokoban
+  hs-source-dirs:
+      exe
+  ghc-options: -threaded -Wall -fno-warn-name-shadowing
+  build-depends:
+      Cabal
+    , MonadRandom
+    , STMonadTrans
+    , ansi-terminal
+    , async
+    , base
+    , bytestring
+    , deepseq
+    , extra
+    , ghc-prim
+    , hashable
+    , lens
+    , mtl
+    , parallel
+    , primitive
+    , qm-interpolated-string
+    , random
+    , sokoban
+    , stm
+    , template-haskell
+    , text
+    , text-builder
+    , transformers
+    , unordered-containers
+    , vector
+    , word8
+  default-language: Haskell2010
+
+test-suite unit
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Sokoban.Benchmarks
+      Sokoban.ModelSpec
+      Paths_sokoban
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -Wall -fno-warn-name-shadowing
+  build-depends:
+      Cabal
+    , MonadRandom
+    , QuickCheck
+    , STMonadTrans
+    , ansi-terminal
+    , async
+    , base
+    , bytestring
+    , criterion
+    , deepseq
+    , extra
+    , ghc-prim
+    , hashable
+    , hspec
+    , lens
+    , mtl
+    , mwc-random
+    , parallel
+    , primitive
+    , qm-interpolated-string
+    , quickcheck-instances
+    , random
+    , sokoban
+    , stm
+    , template-haskell
+    , text
+    , text-builder
+    , transformers
+    , unordered-containers
+    , vector
+    , word8
+  default-language: Haskell2010
