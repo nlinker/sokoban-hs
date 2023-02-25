@@ -24,19 +24,8 @@ stack exec sokoban
     (this is pretty hard, since it requires path finding algorithm implemented for with
     pushes or steps optimization).
 1. ☑ Parse command line options with `optparse-applicative`.
+1. ☑ Implement animations.
 1. ⍻ Replays and stored solutions.
-1. ⍻ Local storage to store solved/unsolved, progress and score board.
-1. ⍻ Solver, that tries to find the solution from the current position
-    (should be cancellable).
-1. ⍻ Deadlock detection (similar to the feature above, but can be done 
-    with brute-force algorithm).
-1. ⍻ Application configuration and monad transformers stack `ReaderT` with it.
-1. ⍻ Include `RandomMonad` into the transformers stack to randomly select 
-    the next level.
-1. ⍻ Implement a web version for the game, i.e. write the REST interface 
-    using [servant](https://github.com/haskell-servant/servant).
-1. ⍻ Write a frontend in ELM language.
-1. ⍻ Write TUI using [brick](https://github.com/jtdaugherty/brick).
 
 
 ### Where to get sokoban levels
