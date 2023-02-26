@@ -22,26 +22,19 @@ module Data.HashMap.Mutable.Internal.Utils
   , unsafeIOToST
   ) where
 
-import           Data.Bits                              hiding (shiftL)
+import           Control.Monad.ST.Unsafe (unsafeIOToST)
+import           Data.Bits (Bits((.|.), shiftR), FiniteBits(finiteBitSize))
 import           Data.HashMap.Mutable.Internal.IntArray (Elem)
-import           Data.Vector                            (Vector)
-import qualified Data.Vector                            as V
-#if __GLASGOW_HASKELL__ >= 503
-import           GHC.Exts
-#else
-import qualified Data.Bits
-import           Data.Word
-#endif
+import           Data.Vector (Vector)
+import           GHC.Exts (Int(I#), Word(W#), iShiftL#, iShiftRL#, shiftL#, shiftRL#)
+import           Data.Word ()
 
-#if MIN_VERSION_base(4,4,0)
-import           Control.Monad.ST.Unsafe                (unsafeIOToST)
-#else
-import           Control.Monad.ST                       (unsafeIOToST)
-#endif
+import qualified Data.Vector                            as V
+
 
 ------------------------------------------------------------------------------
 wordSize :: Int
-wordSize = bitSize (0::Int)
+wordSize = finiteBitSize (0::Int)
 
 
 cacheLineSize :: Int
@@ -51,7 +44,7 @@ cacheLineSize = 64
 numElemsInCacheLine :: Int
 numElemsInCacheLine = z
   where
-    !z = cacheLineSize `div` (bitSize (0::Elem) `div` 8)
+    !z = cacheLineSize `div` (finiteBitSize (0::Elem) `div` 8)
 
 
 -- | What you have to mask an integer index by to tell if it's

@@ -19,12 +19,10 @@ import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO,
                                    newTVarIO, readTChan, readTVar, writeTChan, writeTVar)
 import Control.Exception          (finally)
-import Control.Lens               (Lens', lens, use, (%=), (%~), (&), (.=), (.~), (^.))
+import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, replicateM_, unless, when)
 import Control.Monad.Primitive    (PrimMonad)
 import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
-import Data.Char                  (isDigit)
-import Data.List                  (isSuffixOf, stripPrefix)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
 import Sokoban.Debug              (setDebugModeM)
@@ -43,9 +41,9 @@ import Sokoban.Solver             (AStarSolver)
 import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
                                    ConsoleLayer(..), SGR(..), setSGR)
 import System.Environment         (getArgs)
-import System.IO                  (BufferMode(..), hReady, hSetBuffering, hSetEcho, stdin)
+import System.IO                  (BufferMode(..), hSetBuffering, hSetEcho, stdin)
 import System.IO.Unsafe           (unsafePerformIO)
-import Text.InterpolatedString.QM (qm, qms)
+import Text.InterpolatedString.QM (qms)
 
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.HashSet               as S
@@ -136,6 +134,7 @@ buildGameState args = do
             }
       }
 
+
 convertKeyToAction :: K.Key -> A.Action
 convertKeyToAction k = case k of
   K.Arrow dir    -> A.Move dir
@@ -148,6 +147,9 @@ convertKeyToAction k = case k of
   K.Letter 'r'   -> A.Restart
   K.Letter 'd'   -> A.ToggleDebugMode
   K.Escape       -> A.Cancel
+  K.MouseClick _ -> A.Cancel
+  K.Letter _     -> A.Cancel
+
 
 gameLoop :: TChan Message -> GameState -> IO ()
 gameLoop chan gs0 = do
@@ -159,7 +161,7 @@ gameLoop chan gs0 = do
     case msg of
       MsgKey (K.MouseClick click) -> 
         case interpretClick gs0 click of
-          (Just action@(A.MoveBoxesStart _src _dst), gs) ->
+          (Just _action@(A.MoveBoxesStart _src _dst), gs) ->
 --            forM_ (gs0 ^. viewState . threadIds) killThread -- avoid leaking threads
 --            tid1 <- forkIO $ progressLoop chan
 --            tid2 <- forkIO $ calculate chan gs  
@@ -178,6 +180,8 @@ gameLoop chan gs0 = do
 --      CmdAction action -> return $ step gs0 action
 --      CmdTick -> return $ gs0 & viewState . progress %~ (<> ".")
   -- perform animation if needed
+      MsgTick ->
+        return gs0
   gs2 <-
     whenWith gs1 (^. (viewState . animateRequired)) $ do
       animate gs0 gs1

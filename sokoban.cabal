@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 2cb088d23c36acbe0f99f45b3f896ba6253acb1fd39578b42f05924eb8c5039a
+-- hash: eafd40c06e63d7ecbcbc4c365f34d0f109e03ccf082759bca132190ff976f767
 
 name:           sokoban
 version:        0.1.0
@@ -38,6 +38,10 @@ library
       Helper
   other-modules:
       Paths_sokoban
+      Data.HashMap.Mutable.Internal.Array
+      Data.HashMap.Mutable.Internal.CacheLine
+      Data.HashMap.Mutable.Internal.IntArray
+      Data.HashMap.Mutable.Internal.Utils
   hs-source-dirs:
       src
   ghc-options: -threaded -Wall -fno-warn-name-shadowing

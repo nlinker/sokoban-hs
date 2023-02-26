@@ -20,7 +20,7 @@ import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
 import Control.Arrow              (second)
-import Control.Concurrent         (ThreadId(..))
+-- import Control.Concurrent         (ThreadId(..))
 import Control.Concurrent.Async   (forConcurrently)
 import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
                                    (^.), _1, _2, _3)
@@ -202,6 +202,7 @@ runStep action = do
     SelectWorker         -> computeWorkerReachability
     SelectBox box        -> computeBoxReachability box
     ToggleDebugMode      -> toggleDebugMode
+    Cancel               -> pure ()
   resetView action
 
 resetView :: MonadState GameState m => Action -> m ()
@@ -504,25 +505,26 @@ tryMove1Box s t = do
 tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
 tryMove2Boxes ss ts = do
   gs <- get
-  let [s1, s2] = ss
-  let [t1, t2] = ts
-  let sourcePpds = findBoxDirections2 gs (s1, s2)
-  let m = gs ^. levelState . height
-  let n = gs ^. levelState . width
-  paths <-
-    parallelForM sourcePpds $ \(src :: PPD) ->
-      return $ runST $ do
-        hm <- HM.new
-        let ctx = SolverContext hm m n
-        pushSolver <- buildPushSolver2 ctx (t1, t2)
-        ppds <- flip evalStateT gs $ aStarFind pushSolver src
-        return $ convPushPathToDirections2 ppds
-  let nePaths = filter (not . null) paths
-  let selected =
-        if null nePaths
-          then []
-          else minimumBy (comparing length) nePaths
-  return selected
+  case (ss, ts) of
+    ([s1, s2], [t1, t2]) -> do
+      let sourcePpds = findBoxDirections2 gs (s1, s2)
+      let m = gs ^. levelState . height
+      let n = gs ^. levelState . width
+      paths <-
+        parallelForM sourcePpds $ \(src :: PPD) ->
+          return $ runST $ do
+            hm <- HM.new
+            let ctx = SolverContext hm m n
+            pushSolver <- buildPushSolver2 ctx (t1, t2)
+            ppds <- flip evalStateT gs $ aStarFind pushSolver src
+            return $ convPushPathToDirections2 ppds
+      let nePaths = filter (not . null) paths
+      let selected =
+            if null nePaths
+              then []
+              else minimumBy (comparing length) nePaths
+      return selected
+    (_, _) -> return []
 
 parallelForM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
 parallelForM xs f = sequenceA $ unsafePerformIO $ forConcurrently xs (return . f)

@@ -23,35 +23,31 @@ module Data.HashMap.Mutable.Internal.Linear.Bucket
 
 
 ------------------------------------------------------------------------------
-import           Control.Monad                              hiding
-                 (foldM, mapM_)
+import Control.Monad hiding (foldM, mapM_)
 import qualified Control.Monad
-import           Control.Monad.ST                           (ST)
-#ifdef DEBUG
-import           Data.HashMap.Mutable.Internal.Utils        (unsafeIOToST)
-#endif
-import           Data.HashMap.Mutable.Internal.Array
-import           Data.Maybe                                 (fromMaybe)
-import           Data.STRef
-import           Prelude                                    hiding
-                 (lookup, mapM_)
+
+import Control.Monad.ST (ST)
+import Prelude          hiding (lookup, mapM_)
+import Data.Maybe       (fromMaybe)
+import Data.STRef       (newSTRef, readSTRef, writeSTRef, STRef)
+import Data.HashMap.Mutable.Internal.Array        (MutableArray, newArray, readArray, writeArray)
+import Data.HashMap.Mutable.Internal.UnsafeTricks (Key, emptyRecord, keyIsEmpty, toKey, fromKey)
 ------------------------------------------------------------------------------
-import           Data.HashMap.Mutable.Internal.UnsafeTricks
-
-
 #ifdef DEBUG
-import           System.IO
+import Data.HashMap.Mutable.Internal.Utils (unsafeIOToST)
+import System.IO
 #endif
 
 
 type Bucket s k v = Key (Bucket_ s k v)
 
 ------------------------------------------------------------------------------
-data Bucket_ s k v = Bucket { _bucketSize :: {-# UNPACK #-} !Int
-                            , _highwater  :: {-# UNPACK #-} !(STRef s Int)
-                            , _keys       :: {-# UNPACK #-} !(MutableArray s k)
-                            , _values     :: {-# UNPACK #-} !(MutableArray s v)
-                            }
+data Bucket_ s k v = Bucket 
+  { _bucketSize :: {-# UNPACK #-} !Int
+  , _highwater  :: {-# UNPACK #-} !(STRef s Int)
+  , _keys       :: {-# UNPACK #-} !(MutableArray s k)
+  , _values     :: {-# UNPACK #-} !(MutableArray s v)
+  }
 
 
 ------------------------------------------------------------------------------

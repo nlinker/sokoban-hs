@@ -19,31 +19,35 @@ module Data.HashMap.Mutable.Internal.CacheLine
   , maskw#
   ) where
 
-import           Control.Monad
-import           Control.Monad.Primitive
-                 (PrimMonad, PrimState, unsafePrimToPrim)
-import           Control.Monad.ST                       (ST)
-
+import           Control.Monad ( liftM )
+import           Control.Monad.Primitive (PrimMonad, PrimState, unsafePrimToPrim)
 import           Data.HashMap.Mutable.Internal.IntArray (Elem, IntArray)
+import Data.HashMap.Mutable.Internal.Utils (cacheLineIntMask, numElemsInCacheLine, wordSize)
+import GHC.Exts
+    ( Int#,
+      Int(I#),
+      Word#,
+      Ptr,
+      (+#),
+      (-#),
+      (==#),
+      int2Word#,
+      uncheckedIShiftRA#,
+      and#,
+      xor#,
+      not#,
+      word2Int#,
+      isTrue# )
+
 import qualified Data.HashMap.Mutable.Internal.IntArray as M
+-- import qualified Data.Vector.Unboxed                    as U
 
 #ifndef NO_C_SEARCH
-import           Foreign.C.Types
+import           Foreign.C.Types (CInt(..), CUShort(..))
 #else
 import           Data.Bits
 import           Data.Int
-import qualified Data.Vector.Unboxed                    as U
 import           GHC.Int
-#endif
-
-import           Data.HashMap.Mutable.Internal.Utils
-import           GHC.Exts
-
-#if __GLASGOW_HASKELL__ >= 707
-import           GHC.Exts                               (isTrue#)
-#else
-isTrue# :: Bool -> Bool
-isTrue# = id
 #endif
 
 {-# INLINE prefetchRead  #-}

@@ -18,14 +18,12 @@ module Data.HashMap.Mutable.Internal.IntArray
 
 ------------------------------------------------------------------------------
 import           Control.Monad.Primitive  (PrimMonad, PrimState)
--- import           Control.Monad.ST
--- import           Data.Primitive.Types     (Addr (..))
-import           Data.Bits ( FiniteBits(finiteBitSize) )
+import           Data.Bits (FiniteBits(finiteBitSize))
+import           GHC.Exts  (Int#, Int(..), Word#, Ptr(..), word2Int#)
+import           GHC.Word  (Word16(..))
+import           GHC.Prim  (word16ToWord#, wordToWord16#)
+import           Prelude hiding (length)
 import qualified Data.Primitive.ByteArray as A
-import           GHC.Exts  ( Int#, Int(..), Word#, Word(W#), Ptr(..), word2Int# )
-import           GHC.Word  ( Word(W#), Word16(..) )
-import           GHC.Prim  ( word16ToWord# )
-import           Prelude                  hiding (length)
 ------------------------------------------------------------------------------
 
 
@@ -52,7 +50,7 @@ type Elem = Word16
 
 ------------------------------------------------------------------------------
 primWordToElem :: Word# -> Elem
-primWordToElem w = fromIntegral (W# w)
+primWordToElem w = W16# (wordToWord16# w)
 
 
 ------------------------------------------------------------------------------

@@ -10,13 +10,11 @@
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE Strict                     #-}
-{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UnboxedTuples              #-}
-{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE RecordWildCards            #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE RecordWildCards #-}
 
 module Sokoban.Solver where
 
@@ -27,10 +25,11 @@ import Control.Monad.Primitive         (PrimMonad(..), PrimState)
 import Data.Hashable                   (Hashable)
 import Data.Maybe                      (fromMaybe, isJust)
 import Text.InterpolatedString.QM      (qm)
+import Data.Primitive                  (MutVar, newMutVar, modifyMutVar')
+-- import GHC.Base                        (VecElem(Int16ElemRep))
 
 import qualified Data.HashMap.Mutable.Basic as HM
 import qualified Data.Heap.Mutable.ModelD   as HMD
-import Data.Primitive (newMutVar, readMutVar, modifyMutVar', MutVar (MutVar))
 
 newtype Min =
   Min Int
@@ -65,7 +64,7 @@ aStarFind AStarSolver {..} src  = do
   let isrc = p2i src
   HMD.unsafePush (Min 0) isrc openHeap
   HM.insert openList isrc (src, src, 0)
-  -- return path
+  -- returns path
   aStarFindRec openHeap openList closedList p2i maxSize
   where
     aStarFindRec
@@ -142,17 +141,15 @@ breadFirstFind AStarSolver{..} src = do
   let p2i = projection
   maxSize <- newMutVar (0 :: Int)
   let maxCount = nodesBound
-  path <- do
-    openHeap <- HMD.new maxCount :: m (HMD.Heap (PrimState m) Min)
-    openList <- HM.new           :: m (HM.MHashMap (PrimState m) Int (p, p))
-    closedList <- HM.new         :: m (HM.MHashMap (PrimState m) p p)
-    let isrc = p2i src
-    HMD.push (Min 0) isrc openHeap
-    HM.insert openList isrc (src, src)
-    breadFirstFindRec 0
+  openHeap <- HMD.new maxCount :: m (HMD.Heap (PrimState m) Min)
+  openList <- HM.new           :: m (HM.MHashMap (PrimState m) Int (p, p))
+  closedList <- HM.new         :: m (HM.MHashMap (PrimState m) p p)
+  let isrc = p2i src
+  HMD.push (Min 0) isrc openHeap
+  HM.insert openList isrc (src, src)
   -- _v <- readMutVar maxSize
   --  traceM [qm| max size = {v} |]
-  return path
+  breadFirstFindRec openHeap openList closedList p2i maxSize 0
   where
     keys :: (PrimMonad m, Hashable k, Eq k) => HM.MHashMap (PrimState m) k v -> m [k]
     keys hm = HM.foldM (\a k _v -> return $ k : a) [] hm
@@ -162,7 +159,15 @@ breadFirstFind AStarSolver{..} src = do
       v' <- HM.lookup hm p
       return $ isJust v'
 
-    breadFirstFindRec (it :: Int) = do
+    breadFirstFindRec
+      :: HMD.Heap (PrimState m) Min
+      -> HM.MHashMap (PrimState m) Int (p, p)
+      -> HM.MHashMap (PrimState m) p p
+      -> (p -> Int)
+      -> MutVar (PrimState m) Int
+      -> Int
+      -> m [p]
+    breadFirstFindRec openHeap openList closedList p2i maxSize it = do
       -- do looping until heap becomes empty
       top' <- HMD.pop openHeap -- remove the minimum and return
       case top' of
@@ -196,4 +201,4 @@ breadFirstFind AStarSolver{..} src = do
                   modifyMutVar' maxSize (+1)
                   HMD.push gscoreNp inp openHeap
                   HM.insert openList inp (np, p0)
-            breadFirstFindRec (it + 1)
+            breadFirstFindRec openHeap openList closedList p2i maxSize (it + 1)

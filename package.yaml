@@ -29,6 +29,10 @@ library:
     - Helper
   other-modules:
     - Paths_sokoban
+    - Data.HashMap.Mutable.Internal.Array
+    - Data.HashMap.Mutable.Internal.CacheLine
+    - Data.HashMap.Mutable.Internal.IntArray
+    - Data.HashMap.Mutable.Internal.Utils
 
 executables:
   sokoban:
