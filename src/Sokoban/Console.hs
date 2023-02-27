@@ -1,64 +1,114 @@
-{-# LANGUAGE BinaryLiterals        #-}
-{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE ExtendedDefaultRules  #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE QuasiQuotes           #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# LANGUAGE ExtendedDefaultRules #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Console where
 
+import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
+import Control.Concurrent.STM
+  ( TChan,
+    TVar,
+    atomically,
+    newTChanIO,
+    newTVarIO,
+    readTChan,
+    readTVar,
+    readTVarIO,
+    writeTChan,
+    writeTVar,
+  )
+import Control.Exception (finally)
+import Control.Lens (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
+import Control.Monad (forM_, replicateM_, unless, when)
+import Control.Monad.Primitive (PrimMonad)
+import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
+import qualified Data.HashMap.Mutable.Basic as HM
+import qualified Data.HashSet as S
+import Data.Maybe (fromMaybe, isJust)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import Data.Vector ((!))
+import Debug (setDebugModeM)
+import qualified Sokoban.Keys as K (Key (..), keyLoop)
+import Sokoban.Level
+  ( Cell (..),
+    Direction (..),
+    LevelCollection (..),
+    PD (..),
+    Point (..),
+    isBox,
+    isEmptyOrGoal,
+    isWorker,
+    levels,
+  )
+import Sokoban.Model
+  ( AnimationMode (..),
+    GameState (..),
+    SolverContext (..),
+    ViewState (..),
+    animateRequired,
+    animationMode,
+    buildPushSolver,
+    cells,
+    clicks,
+    destinations,
+    direction,
+    doClearScreen,
+    doMove,
+    eraseBoxes,
+    getCell,
+    height,
+    id,
+    initialLevelState,
+    isComplete,
+    levelState,
+    message,
+    moveCount,
+    progress,
+    pushCount,
+    stats,
+    step,
+    undoIndex,
+    undoMove,
+    undoStack,
+    viewState,
+    width,
+    _UndoItem,
+  )
+import qualified Sokoban.Model as A (Action (..))
+import Sokoban.Parser (parseLevels)
+import Sokoban.Resources (testCollection)
+import Sokoban.Solver (AStarSolver)
+import System.Console.ANSI
+  ( BlinkSpeed (SlowBlink),
+    Color (..),
+    ColorIntensity (..),
+    ConsoleLayer (..),
+    SGR (..),
+    setSGR,
+  )
+import System.Environment (getArgs)
+import System.IO (BufferMode (..), hSetBuffering, hSetEcho, stdin)
+import System.IO.Unsafe (unsafePerformIO)
+import Text.InterpolatedString.QM (qms)
 import Prelude hiding (id)
 
-import Debug                      (setDebugModeM)
-import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
-import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO,
-                                   newTVarIO, readTChan, readTVar, writeTChan, writeTVar, readTVarIO)
-import Control.Exception          (finally)
-import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
-import Control.Monad              (forM_, replicateM_, unless, when)
-import Control.Monad.Primitive    (PrimMonad)
-import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
-import Data.Maybe                 (fromMaybe, isJust)
-import Data.Vector                ((!))
-import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..),
-                                   isBox, isEmptyOrGoal, isWorker, levels, PD(..))
-import Sokoban.Model              (AnimationMode(..), GameState(..), SolverContext(..),
-                                   ViewState(..), animateRequired, animationMode, cells,
-                                   clicks, destinations, direction, doClearScreen, doMove,
-                                   eraseBoxes, getCell, height, id, initialLevelState, isComplete,
-                                   levelState, levelState, message, moveCount, progress, pushCount,
-                                   stats, step, undoIndex, undoMove, undoStack, viewState, width,
-                                   _UndoItem, buildPushSolver)
-import Sokoban.Parser             (parseLevels)
-import Sokoban.Resources          (testCollection)
-import Sokoban.Solver             (AStarSolver)
-import System.Console.ANSI        (BlinkSpeed(SlowBlink), Color(..), ColorIntensity(..),
-                                   ConsoleLayer(..), SGR(..), setSGR)
-import System.Environment         (getArgs)
-import System.IO                  (BufferMode(..), hSetBuffering, hSetEcho, stdin)
-import System.IO.Unsafe           (unsafePerformIO)
-import Text.InterpolatedString.QM (qms)
-
-import qualified Data.HashMap.Mutable.Basic as HM
-import qualified Data.HashSet               as S
-import qualified Data.Text                  as T
-import qualified Data.Text.IO               as T
-import qualified Sokoban.Model              as A (Action(..))
-import qualified Sokoban.Keys               as K (Key(..), keyLoop)
-
 animationTickDelay :: Int
-animationTickDelay = 20 * 1000
+animationTickDelay = 20_000
 
 animationTickDelayInUndoRedo :: Int
 animationTickDelayInUndoRedo = 200
 
-whenWith :: Monad m => a -> (a -> Bool) -> m a -> m a
+whenWith :: (Monad m) => a -> (a -> Bool) -> m a -> m a
 whenWith a p runA =
   if p a
     then runA
@@ -67,7 +117,6 @@ whenWith a p runA =
 data Message
   = MsgKey K.Key
   | MsgTick
-
 
 -- | run console game
 run :: IO ()
@@ -93,17 +142,16 @@ run = do
       hSetEcho stdin False
       clearScreen
       putStrLn "\ESC[?25l" -- hide cursor
-       -- enable mouse capturing mode
+      -- enable mouse capturing mode
       putStrLn "\ESC[?1000h"
       putStrLn "\ESC[?1015h"
       putStrLn "\ESC[?1006h"
     destroyScreen = do
       putStrLn "\ESC[?25h" -- show cursor
-       -- disable mouse capturing mode
+      -- disable mouse capturing mode
       putStrLn "\ESC[?1006l"
       putStrLn "\ESC[?1015l"
       putStrLn "\ESC[?1000l"
-
 
 buildGameState :: [String] -> IO GameState
 buildGameState args = do
@@ -117,41 +165,45 @@ buildGameState args = do
         when (null levels) $ error $ "File " <> fileName <> " contains no sokoban levels"
         return $
           LevelCollection
-            {_title = T.pack fileName, _description = "", _email = "", _url = "", _copyright = "", _levels = levels}
+            { _title = T.pack fileName,
+              _description = "",
+              _email = "",
+              _url = "",
+              _copyright = "",
+              _levels = levels
+            }
   -- now we know, that the collection contains at least 1 valid level
   return $
     GameState
-      { _collection = levelCollection
-      , _index = 0
-      , _levelState = fromMaybe (error "Impossible") $ initialLevelState $ head (levelCollection ^. levels)
-      , _viewState =
+      { _collection = levelCollection,
+        _index = 0,
+        _levelState = fromMaybe (error "Impossible") $ initialLevelState $ head (levelCollection ^. levels),
+        _viewState =
           ViewState
-            { _doClearScreen = False
-            , _clicks = []
-            , _destinations = S.empty
-            , _animateRequired = False
-            , _animationMode = AnimationDo
-            , _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse"
-            , _progress = ""
+            { _doClearScreen = False,
+              _clicks = [],
+              _destinations = S.empty,
+              _animateRequired = False,
+              _animationMode = AnimationDo,
+              _message = "Controls: ← ↑ → ↓ R U I PgUp PgDn Mouse",
+              _progress = ""
             }
       }
 
-
 convertKeyToAction :: K.Key -> A.Action
 convertKeyToAction k = case k of
-  K.Arrow dir    -> A.Move dir
-  K.PageUp       -> A.PrevLevel
-  K.PageDown     -> A.NextLevel
-  K.Letter '['   -> A.PrevLevel
-  K.Letter ']'   -> A.NextLevel
-  K.Letter 'u'   -> A.Undo
-  K.Letter 'i'   -> A.Redo
-  K.Letter 'r'   -> A.Restart
-  K.Letter 'd'   -> A.ToggleDebugMode
-  K.Escape       -> A.Cancel
+  K.Arrow dir -> A.Move dir
+  K.PageUp -> A.PrevLevel
+  K.PageDown -> A.NextLevel
+  K.Letter '[' -> A.PrevLevel
+  K.Letter ']' -> A.NextLevel
+  K.Letter 'u' -> A.Undo
+  K.Letter 'i' -> A.Redo
+  K.Letter 'r' -> A.Restart
+  K.Letter 'd' -> A.ToggleDebugMode
+  K.Escape -> A.Cancel
   K.MouseClick _ -> A.Cancel
-  K.Letter _     -> A.Cancel
-
+  K.Letter _ -> A.Cancel
 
 gameLoop :: TChan Message -> GameState -> IO ()
 gameLoop chan gs0 = do
@@ -161,27 +213,27 @@ gameLoop chan gs0 = do
   msg <- atomically $ readTChan chan
   gs1 <-
     case msg of
-      MsgKey (K.MouseClick click) -> 
+      MsgKey (K.MouseClick click) ->
         case interpretClick gs0 click of
           (Just _action@(A.MoveBoxesStart _src _dst), gs) ->
---            forM_ (gs0 ^. viewState . threadIds) killThread -- avoid leaking threads
---            tid1 <- forkIO $ progressLoop chan
---            tid2 <- forkIO $ calculate chan gs  
---            let gs' = gs & viewState . threadIds .~ [tid1, tid2]
---            return $ step gs' action
-              return gs
+            --            forM_ (gs0 ^. viewState . threadIds) killThread -- avoid leaking threads
+            --            tid1 <- forkIO $ progressLoop chan
+            --            tid2 <- forkIO $ calculate chan gs
+            --            let gs' = gs & viewState . threadIds .~ [tid1, tid2]
+            --            return $ step gs' action
+            return gs
           (Just action, gs) -> return $ step gs action
-          (Nothing, gs)     -> return gs
-      MsgKey K.Escape -> 
---      forM_ (gs0 ^. viewState . threadIds) killThread
+          (Nothing, gs) -> return gs
+      MsgKey K.Escape ->
+        --      forM_ (gs0 ^. viewState . threadIds) killThread
         return gs0
-      MsgKey key -> return $ step gs0 (convertKeyToAction key) 
---      CmdFinish dirs -> do
---        forM_ (gs0 ^. viewState . threadIds) killThread
---        return gs0
---      CmdAction action -> return $ step gs0 action
---      CmdTick -> return $ gs0 & viewState . progress %~ (<> ".")
-  -- perform animation if needed
+      MsgKey key -> return $ step gs0 (convertKeyToAction key)
+      --      CmdFinish dirs -> do
+      --        forM_ (gs0 ^. viewState . threadIds) killThread
+      --        return gs0
+      --      CmdAction action -> return $ step gs0 action
+      --      CmdTick -> return $ gs0 & viewState . progress %~ (<> ".")
+      -- perform animation if needed
       MsgTick ->
         return gs0
   gs2 <-
@@ -224,97 +276,96 @@ animate gsFrom gsTo = do
       animateRedo gsFrom dirs
   where
     animateDo _ [] = return ()
-    animateDo gs (dir:dirs) = do
+    animateDo gs (dir : dirs) = do
       let gs2 = execState (doMove dir) gs
       moveCursorToOrigin
       render gs2
       threadDelay animationTickDelay
       animateDo gs2 dirs
     animateUndo _ [] = return ()
-    animateUndo gs (diff:diffs) = do
+    animateUndo gs (diff : diffs) = do
       let gs2 = execState (undoMove diff) gs
       moveCursorToOrigin
       render gs2
       threadDelay animationTickDelayInUndoRedo
       animateUndo gs2 diffs
     animateRedo _ [] = return ()
-    animateRedo gs (dir:dirs) = do
+    animateRedo gs (dir : dirs) = do
       let gs2 = execState (doMove dir) gs
       moveCursorToOrigin
       render gs2
       threadDelay animationTickDelayInUndoRedo
       animateRedo gs2 dirs
 
-
 -- | The function converts the current click (coordinates, is_left_button_down)
 -- | to the action. GameState is passed because the ViewState might be changed as well
 interpretClick :: GameState -> (Point, Bool) -> (Maybe A.Action, GameState)
 interpretClick gs click = runState runInterpretClick gs
   where
-    runInterpretClick :: MonadState GameState m => m (Maybe A.Action)
+    runInterpretClick :: (MonadState GameState m) => m (Maybe A.Action)
     runInterpretClick = do
       complete <- use (levelState . isComplete)
       -- if complete then disable clicking
       if complete
         then return Nothing
         else case click of
-               (_, True) -> return Nothing
-               (click, False) -> do
-                 let gather clks =
-                       if click `elem` clks
-                         then []
-                         else click : clks
-                 clickz <- gather <$> use (viewState . clicks)
-                 cellz <- mapM getCell clickz
-                 action <-
-                   case (clickz, cellz) of
-                     ([], []) -> do
-                       viewState . clicks .= []
-                       return Nothing
-                     ([p0], [c0])
-                       | isEmptyOrGoal c0 -> do
-                         viewState . clicks .= []
-                         return $ Just $ A.MoveWorker p0
-                       | isWorker c0 -> do
-                         viewState . clicks .= [p0]
-                         return $ Just A.SelectWorker
-                       | isBox c0 -> do
-                         viewState . clicks .= [p0]
-                         return $ Just $ A.SelectBox p0
-                       | otherwise -> do
-                         viewState . clicks .= []
-                         return Nothing
-                     ([p1, p0], [c1, c0])
-                       | isWorker c0 && isDestination c1 -> do
-                         viewState . clicks .= []
-                         return $ Just $ A.MoveWorker p1
-                       | isBox c0 && isDestination c1 -> do
-                         viewState . clicks .= []
-                         return $ Just $ A.MoveBoxesStart [p0] [p1]
-                       | isBox c0 && isBox c1 -> do
-                         viewState . clicks .= [p1, p0]
-                         return $ Just $ A.SelectBox p1
-                       | otherwise -> do
-                         viewState . clicks .= []
-                         return Nothing
-                     (_, _) -> do
-                       viewState . clicks .= []
-                       viewState . destinations .= S.empty
-                       return Nothing
-                 case action of
-                   Just (A.SelectBox _) -> return action
-                   _ -> do
-                     viewState . destinations .= S.empty
-                     return action
+          (_, True) -> return Nothing
+          (click, False) -> do
+            let gather clks =
+                  if click `elem` clks
+                    then []
+                    else click : clks
+            clickz <- gather <$> use (viewState . clicks)
+            cellz <- mapM getCell clickz
+            action <-
+              case (clickz, cellz) of
+                ([], []) -> do
+                  viewState . clicks .= []
+                  return Nothing
+                ([p0], [c0])
+                  | isEmptyOrGoal c0 -> do
+                      viewState . clicks .= []
+                      return $ Just $ A.MoveWorker p0
+                  | isWorker c0 -> do
+                      viewState . clicks .= [p0]
+                      return $ Just A.SelectWorker
+                  | isBox c0 -> do
+                      viewState . clicks .= [p0]
+                      return $ Just $ A.SelectBox p0
+                  | otherwise -> do
+                      viewState . clicks .= []
+                      return Nothing
+                ([p1, p0], [c1, c0])
+                  | isWorker c0 && isDestination c1 -> do
+                      viewState . clicks .= []
+                      return $ Just $ A.MoveWorker p1
+                  | isBox c0 && isDestination c1 -> do
+                      viewState . clicks .= []
+                      return $ Just $ A.MoveBoxesStart [p0] [p1]
+                  | isBox c0 && isBox c1 -> do
+                      viewState . clicks .= [p1, p0]
+                      return $ Just $ A.SelectBox p1
+                  | otherwise -> do
+                      viewState . clicks .= []
+                      return Nothing
+                (_, _) -> do
+                  viewState . clicks .= []
+                  viewState . destinations .= S.empty
+                  return Nothing
+            case action of
+              Just (A.SelectBox _) -> return action
+              _ -> do
+                viewState . destinations .= S.empty
+                return action
 
 isDestination :: Cell -> Bool
 isDestination c =
   case c of
-    Worker _       -> True
+    Worker _ -> True
     WorkerOnGoal _ -> True
-    Goal           -> True
-    Empty          -> True
-    _              -> False
+    Goal -> True
+    Empty -> True
+    _ -> False
 
 clearScreen :: IO ()
 clearScreen = putStrLn "\ESC[2J"
@@ -387,15 +438,15 @@ render gs = do
         Wall -> ('▩', Blue)
         Empty ->
           case (dest, click) of
-            (True, True)   -> ('꘎', White)
-            (False, True)  -> ('꘎', White)
-            (True, False)  -> ('·', White)
+            (True, True) -> ('꘎', White)
+            (False, True) -> ('꘎', White)
+            (True, False) -> ('·', White)
             (False, False) -> (' ', White)
         Goal ->
           case (dest, click) of
-            (True, True)   -> ('✦', White)
-            (False, True)  -> ('✧', Red)
-            (True, False)  -> ('✦', White)
+            (True, True) -> ('✦', White)
+            (False, True) -> ('✧', Red)
+            (True, False) -> ('✦', White)
             (False, False) -> ('✧', Red)
         Box -> ('▩', Yellow)
         BoxOnGoal -> ('▩', Red)
@@ -427,12 +478,12 @@ ps1 :: AStarSolver (StateT GameState IO) PD
     let gs = eraseBoxes [Point 11 2, Point 7 3] gs0
     ctx <- ctxGs gs
     ps1 <- buildPushSolver ctx (PD (Point 5 1) U [])
-    let part0 = map (, 0) [U, D, L, R]
-    let part1 = map (, 1) [U, D, L, R]
+    let part0 = map (,0) [U, D, L, R]
+    let part1 = map (,1) [U, D, L, R]
     let sources = part0 <> part1
     return (gs, gs0, ctx, sources, ps1)
   where
-    ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
+    ctxGs :: (PrimMonad m) => GameState -> m (SolverContext m)
     ctxGs gs = do
       hm <- HM.new
       let (m, n) = (gs ^. levelState . height, gs ^. levelState . width)
@@ -475,7 +526,7 @@ stmExample = do
 atomRead :: TVar a -> IO a
 atomRead = readTVarIO
 
-dispVar :: Show a => TVar a -> IO ()
+dispVar :: (Show a) => TVar a -> IO ()
 dispVar x = atomRead x >>= print
 
 appV :: (a -> a) -> TVar a -> IO ()

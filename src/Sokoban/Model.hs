@@ -1,85 +1,121 @@
-{-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE QuasiQuotes           #-}
-{-# LANGUAGE Rank2Types            #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE Strict                #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Strict #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Sokoban.Model where
 
-import           Prelude hiding (Left, Right, id)
-import qualified Prelude as P
-
-import Debug                      (getDebugModeM, setDebugModeM)
-import Control.Arrow              (second)
+import Control.Arrow (second)
 -- import Control.Concurrent         (ThreadId(..))
-import Control.Concurrent.Async   (forConcurrently)
-import Control.Lens               (Lens', ix, lens, use, (%=), (&), (+=), (-=), (.=), (.~), (<>=),
-                                   (^.), _1, _2, _3)
-import Control.Lens.TH            (makeLenses, makePrisms)
-import Control.Monad              (filterM, forM, forM_, unless, when)
-import Control.Monad.Identity     (runIdentity)
-import Control.Monad.Primitive    (PrimMonad(..), PrimState)
-import Control.Monad.ST.Strict    (runST)
-import Control.Monad.State.Strict (MonadState, StateT, evalState, evalStateT, execState, get, gets,
-                                   lift, runState)
-import Control.Monad.Trans.Maybe  (MaybeT(..), runMaybeT)
-import Data.Foldable              (foldl', minimumBy)
-import Data.Maybe                 (catMaybes)
-import Data.Ord                   (comparing)
-import Data.Vector                (Vector, (!))
-import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), 
-                                   Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
-import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
-import System.IO.Unsafe           (unsafePerformIO)
-import Text.InterpolatedString.QM (qm, qms)
-
+import Control.Concurrent.Async (forConcurrently)
+import Control.Lens
+  ( Lens',
+    ix,
+    lens,
+    use,
+    (%=),
+    (&),
+    (+=),
+    (-=),
+    (.=),
+    (.~),
+    (<>=),
+    (^.),
+    _1,
+    _2,
+    _3,
+  )
+import Control.Lens.TH (makeLenses, makePrisms)
+import Control.Monad (filterM, forM, forM_, unless, when)
+import Control.Monad.Identity (runIdentity)
+import Control.Monad.Primitive (PrimMonad (..), PrimState)
+import Control.Monad.ST.Strict (runST)
+import Control.Monad.State.Strict
+  ( MonadState,
+    StateT,
+    evalState,
+    evalStateT,
+    execState,
+    get,
+    gets,
+    lift,
+    runState,
+  )
+import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import Data.Foldable (foldl', minimumBy)
 import qualified Data.HashMap.Mutable.Basic as HM
-import qualified Data.HashSet               as S
-import qualified Data.Text                  as T
-import qualified Data.Vector                as V
-import qualified Data.Vector.Unboxed        as VU
-import qualified Sokoban.Level              as L (cells, height, id, width)
-import qualified Text.Builder               as TB
+import qualified Data.HashSet as S
+import Data.Maybe (catMaybes)
+import Data.Ord (comparing)
+import qualified Data.Text as T
+import Data.Vector (Vector, (!))
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
+import Debug (getDebugModeM, setDebugModeM)
+import Sokoban.Level
+  ( Cell (..),
+    Direction (..),
+    Level,
+    LevelCollection,
+    PD (..),
+    Point (..),
+    deriveDir,
+    isBox,
+    isEmptyOrGoal,
+    isGoal,
+    isWorker,
+    levels,
+    movePoint,
+    opposite,
+    w8FromDirection,
+    w8ToDirection,
+    _PD,
+  )
+import qualified Sokoban.Level as L (cells, height, id, width)
+import Sokoban.Solver (AStarSolver (..), aStarFind, breadFirstFind)
+import System.IO.Unsafe (unsafePerformIO)
+import qualified Text.Builder as TB
+import Text.InterpolatedString.QM (qm, qms)
+import Prelude hiding (Left, Right, id)
+import qualified Prelude as P
 
 type MatrixCell = Vector (Vector Cell)
 
-data Diff =
-  Diff
-    { _direction :: !Direction
-    , _isPush    :: !Bool
-    }
+data Diff = Diff
+  { _direction :: !Direction,
+    _isPush :: !Bool
+  }
   deriving (Eq, Show)
 
-newtype UndoItem =
-  UndoItem [Diff]
+newtype UndoItem
+  = UndoItem [Diff]
   deriving (Eq, Show)
 
-data LevelState =
-  LevelState
-    { _id         :: !T.Text
-    , _cells      :: !MatrixCell
-    , _origin     :: !MatrixCell
-    , _height     :: !Int
-    , _width      :: !Int
-    , _worker     :: !Point
-    , _boxes      :: !(S.HashSet Point)
-    , _goals      :: !(S.HashSet Point)
-    , _isComplete :: !Bool
-    , _undoStack  :: ![UndoItem]
-    , _undoIndex  :: !Int
-    , _stats      :: !Stats
-    }
+data LevelState = LevelState
+  { _id :: !T.Text,
+    _cells :: !MatrixCell,
+    _origin :: !MatrixCell,
+    _height :: !Int,
+    _width :: !Int,
+    _worker :: !Point,
+    _boxes :: !(S.HashSet Point),
+    _goals :: !(S.HashSet Point),
+    _isComplete :: !Bool,
+    _undoStack :: ![UndoItem],
+    _undoIndex :: !Int,
+    _stats :: !Stats
+  }
   deriving (Eq, Show)
 
 data AnimationMode
@@ -88,32 +124,29 @@ data AnimationMode
   | AnimationRedo
   deriving (Eq, Show)
 
-data ViewState =
-  ViewState
-    { _doClearScreen   :: !Bool
-    , _clicks          :: ![Point]
-    , _destinations    :: !(S.HashSet Point)
-    , _animateRequired :: !Bool
-    , _animationMode   :: !AnimationMode
-    , _message         :: !T.Text
-    , _progress        :: !T.Text
-    }
+data ViewState = ViewState
+  { _doClearScreen :: !Bool,
+    _clicks :: ![Point],
+    _destinations :: !(S.HashSet Point),
+    _animateRequired :: !Bool,
+    _animationMode :: !AnimationMode,
+    _message :: !T.Text,
+    _progress :: !T.Text
+  }
   deriving (Eq, Show)
 
-data Stats =
-  Stats
-    { _moveCount :: !Int
-    , _pushCount :: !Int
-    }
+data Stats = Stats
+  { _moveCount :: !Int,
+    _pushCount :: !Int
+  }
   deriving (Eq, Show)
 
-data GameState =
-  GameState
-    { _collection :: !LevelCollection
-    , _index      :: !Int
-    , _levelState :: !LevelState
-    , _viewState  :: !ViewState
-    }
+data GameState = GameState
+  { _collection :: !LevelCollection,
+    _index :: !Int,
+    _levelState :: !LevelState,
+    _viewState :: !ViewState
+  }
   deriving (Eq)
 
 data Action
@@ -139,23 +172,21 @@ data Command
   | CmdFinish [Direction]
   deriving (Eq, Show)
 
-data FlatLevelState =
-  FlatLevelState
-    { _flatCells  :: !(VU.Vector Cell)
-    , _flatHeight :: !Int
-    , _flatWidth  :: !Int
-    , _flatWorker :: !Int
-    , _flatBoxes  :: !(VU.Vector Int)
-    , _flatGoals  :: !(VU.Vector Int)
-    }
+data FlatLevelState = FlatLevelState
+  { _flatCells :: !(VU.Vector Cell),
+    _flatHeight :: !Int,
+    _flatWidth :: !Int,
+    _flatWorker :: !Int,
+    _flatBoxes :: !(VU.Vector Int),
+    _flatGoals :: !(VU.Vector Int)
+  }
   deriving (Eq, Show)
 
-data SolverContext m =
-  SolverContext
-    { _pathCache :: HM.MHashMap (PrimState m) ([Point], Direction, Point, Point) [Point]
-    , _cHeight   :: Int
-    , _cWidth    :: Int
-    }
+data SolverContext m = SolverContext
+  { _pathCache :: HM.MHashMap (PrimState m) ([Point], Direction, Point, Point) [Point],
+    _cHeight :: Int,
+    _cWidth :: Int
+  }
   deriving (Show)
 
 makeLenses ''Diff
@@ -185,67 +216,67 @@ instance Show GameState where
 step :: GameState -> Action -> GameState
 step gameState action = (execState $ runStep action) gameState
 
-runStep :: MonadState GameState m => Action -> m ()
+runStep :: (MonadState GameState m) => Action -> m ()
 runStep action = do
   case action of
-    Move dir             -> moveWorker dir True
-    Restart              -> restartLevel
-    Undo                 -> undoMoveWorker
-    Redo                 -> redoMoveWorker
-    PrevLevel            -> switchLevel (negate 1)
-    NextLevel            -> switchLevel (0 + 1)
-    MoveWorker dst       -> moveWorkerToThePoint dst
-    MoveBoxesStart _ _   -> pure ()
+    Move dir -> moveWorker dir True
+    Restart -> restartLevel
+    Undo -> undoMoveWorker
+    Redo -> redoMoveWorker
+    PrevLevel -> switchLevel (negate 1)
+    NextLevel -> switchLevel (0 + 1)
+    MoveWorker dst -> moveWorkerToThePoint dst
+    MoveBoxesStart _ _ -> pure ()
     MoveBoxesFinish dirs -> moveBoxesByWorkerFinish dirs
-    MoveBoxesCancel      -> pure ()
-    SelectWorker         -> computeWorkerReachability
-    SelectBox box        -> computeBoxReachability box
-    ToggleDebugMode      -> toggleDebugMode
-    Cancel               -> pure ()
+    MoveBoxesCancel -> pure ()
+    SelectWorker -> computeWorkerReachability
+    SelectBox box -> computeBoxReachability box
+    ToggleDebugMode -> toggleDebugMode
+    Cancel -> pure ()
   resetView action
 
-resetView :: MonadState GameState m => Action -> m ()
-resetView action
+resetView :: (MonadState GameState m) => Action -> m ()
+resetView action =
   -- now compare the sets and check the game completion
- = do
-  ls <- use levelState
-  if ls ^. goals == ls ^. boxes
-    then do
-      levelState . isComplete .= True
-      viewState . doClearScreen .= True
-      viewState . message .= T.pack "Level complete!"
-    else levelState . isComplete .= False
-  case action of
-    NextLevel -> viewState . doClearScreen .= True
-    PrevLevel -> viewState . doClearScreen .= True
-    ToggleDebugMode -> viewState . doClearScreen .= True
-    SelectWorker -> return ()
-    SelectBox _ -> return ()
-    Restart -> do
-      viewState . message .= ""
-      viewState . clicks .= []
-      viewState . destinations .= S.empty
-      viewState . doClearScreen .= True
-    _ -> do
-      viewState . clicks .= []
-      viewState . destinations .= S.empty
-      complete <- use (levelState . isComplete)
-      unless complete $ viewState . message %= \msg -> T.replicate (T.length msg) " "
+  do
+    ls <- use levelState
+    if ls ^. goals == ls ^. boxes
+      then do
+        levelState . isComplete .= True
+        viewState . doClearScreen .= True
+        viewState . message .= T.pack "Level complete!"
+      else levelState . isComplete .= False
+    case action of
+      NextLevel -> viewState . doClearScreen .= True
+      PrevLevel -> viewState . doClearScreen .= True
+      ToggleDebugMode -> viewState . doClearScreen .= True
+      SelectWorker -> return ()
+      SelectBox _ -> return ()
+      Restart -> do
+        viewState . message .= ""
+        viewState . clicks .= []
+        viewState . destinations .= S.empty
+        viewState . doClearScreen .= True
+      _ -> do
+        viewState . clicks .= []
+        viewState . destinations .= S.empty
+        complete <- use (levelState . isComplete)
+        unless complete $ viewState . message %= \msg -> T.replicate (T.length msg) " "
 
-toggleDebugMode :: MonadState GameState m => m ()
+toggleDebugMode :: (MonadState GameState m) => m ()
 toggleDebugMode = do
   dm <- getDebugModeM
   setDebugModeM $ not dm
   viewState . message .= [qm| Set debug mode: {dm} -> {not dm}|]
 
---startTimer :: MonadState GameState m => m ()
---startTimer = viewState . isCalculating .= True
+-- startTimer :: MonadState GameState m => m ()
+-- startTimer = viewState . isCalculating .= True
 --
---cancelTimer :: MonadState GameState m => m ()
---cancelTimer = do
+-- cancelTimer :: MonadState GameState m => m ()
+-- cancelTimer = do
 --  viewState . isCalculating .= False
 --  viewState . progress .= ""
-restartLevel :: MonadState GameState m => m ()
+restartLevel :: (MonadState GameState m) => m ()
 restartLevel = do
   originCells <- use (levelState . origin)
   case extractWBH originCells of
@@ -259,7 +290,7 @@ restartLevel = do
       levelState . undoIndex .= -1
       levelState . stats .= Stats 0 0
 
-switchLevel :: MonadState GameState m => Int -> m ()
+switchLevel :: (MonadState GameState m) => Int -> m ()
 switchLevel di = do
   idx <- (+ di) <$> use index
   levels <- use (collection . levels)
@@ -272,7 +303,7 @@ switchLevel di = do
     index .= newIdx
     levelState .= level
 
-doMove :: MonadState GameState m => Direction -> m (Maybe Diff)
+doMove :: (MonadState GameState m) => Direction -> m (Maybe Diff)
 doMove d = do
   ls <- use levelState
   if not $ ls ^. isComplete -- if allow to move
@@ -287,32 +318,32 @@ doMove d = do
       -- cells c0 can differ from c0' in direction only, and must be Worker / WorkerOnGoal cell
       let ((d0, d1, d2), moveStatus) = move (c0, c1, c2)
       case moveStatus of
-        Just True
-        -- moved both worker and box
-         -> do
-          levelState . stats . pushCount += 1
-          levelState . boxes %= (S.insert point2 . S.delete point1)
-          levelState . worker .= point1
-          updateCell point0 d0
-          updateCell point1 d1
-          updateCell point2 d2
-          return $ Just $ Diff {_direction = d, _isPush = True}
-        Just False
-        -- moved worker only
-         -> do
-          levelState . stats . moveCount += 1
-          levelState . worker .= point1
-          updateCell point0 d0
-          updateCell point1 d1
-          return $ Just $ Diff {_direction = d, _isPush = False}
-        Nothing
-        -- nothing moved (but the worker could change the direction)
-         -> do
-          updateCell point0 d0
-          return Nothing
+        Just True ->
+          -- moved both worker and box
+          do
+            levelState . stats . pushCount += 1
+            levelState . boxes %= (S.insert point2 . S.delete point1)
+            levelState . worker .= point1
+            updateCell point0 d0
+            updateCell point1 d1
+            updateCell point2 d2
+            return $ Just $ Diff {_direction = d, _isPush = True}
+        Just False ->
+          -- moved worker only
+          do
+            levelState . stats . moveCount += 1
+            levelState . worker .= point1
+            updateCell point0 d0
+            updateCell point1 d1
+            return $ Just $ Diff {_direction = d, _isPush = False}
+        Nothing ->
+          -- nothing moved (but the worker could change the direction)
+          do
+            updateCell point0 d0
+            return Nothing
     else return Nothing
 
-undoMove :: MonadState GameState m => Diff -> m ()
+undoMove :: (MonadState GameState m) => Diff -> m ()
 undoMove diff = do
   let dir = diff ^. direction
   point1 <- use (levelState . worker)
@@ -330,7 +361,7 @@ undoMove diff = do
     else levelState . stats . moveCount -= 1
   levelState . worker .= point0
 
-redoMoveWorker :: MonadState GameState m => m ()
+redoMoveWorker :: (MonadState GameState m) => m ()
 redoMoveWorker = do
   undos <- use (levelState . undoStack)
   uidx <- use (levelState . undoIndex)
@@ -342,7 +373,7 @@ redoMoveWorker = do
       viewState . animationMode .= AnimationRedo
     levelState . undoIndex .= uidx - 1
 
-undoMoveWorker :: MonadState GameState m => m ()
+undoMoveWorker :: (MonadState GameState m) => m ()
 undoMoveWorker = do
   undos <- use (levelState . undoStack)
   uidx <- use (levelState . undoIndex)
@@ -362,7 +393,7 @@ undoMoveWorker = do
       levelState . boxes .= b
       levelState . goals .= h
 
-moveWorker :: MonadState GameState m => Direction -> Bool -> m ()
+moveWorker :: (MonadState GameState m) => Direction -> Bool -> m ()
 moveWorker d storeUndo = do
   diff' <- doMove d
   case diff' of
@@ -376,7 +407,7 @@ moveWorker d storeUndo = do
         levelState . undoStack .= UndoItem [diff] : drop uidx (ls ^. undoStack)
         levelState . undoIndex .= 0
 
-moveWorkerToThePoint :: MonadState GameState m => Point -> m ()
+moveWorkerToThePoint :: (MonadState GameState m) => Point -> m ()
 moveWorkerToThePoint dst = do
   src <- use (levelState . worker)
   gs <- get
@@ -400,16 +431,17 @@ moveWorkerToThePoint dst = do
       viewState . animateRequired .= True
       viewState . animationMode .= AnimationDo
 
-computeWorkerReachability :: MonadState GameState m => m ()
+computeWorkerReachability :: (MonadState GameState m) => m ()
 computeWorkerReachability = do
   w <- use (levelState . worker)
   area <- S.delete w <$> findWorkerArea w
   viewState . destinations .= area
   where
     findWorkerArea ::
-         forall m. MonadState GameState m
-      => Point
-      -> m (S.HashSet Point)
+      forall m.
+      (MonadState GameState m) =>
+      Point ->
+      m (S.HashSet Point)
     findWorkerArea s = do
       gs <- get
       let m = gs ^. levelState . height
@@ -422,7 +454,7 @@ computeWorkerReachability = do
         area <- flip evalStateT gs $ breadFirstFind moveSolver s
         return $ S.fromList area
 
-computeBoxReachability :: MonadState GameState m => Point -> m ()
+computeBoxReachability :: (MonadState GameState m) => Point -> m ()
 computeBoxReachability box = do
   boxez <- use (levelState . boxes)
   when (S.member box boxez) $ do
@@ -447,8 +479,7 @@ computeBoxReachability box = do
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
 
-
-moveBoxesByWorkerCalc :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
+moveBoxesByWorkerCalc :: (MonadState GameState m) => [Point] -> [Point] -> m [Direction]
 moveBoxesByWorkerCalc src dst =
   case (src, dst) of
     ([s], [t]) -> do
@@ -460,8 +491,7 @@ moveBoxesByWorkerCalc src dst =
       return dirs
     _ -> return []
 
-
-moveBoxesByWorkerFinish :: MonadState GameState m => [Direction] -> m ()
+moveBoxesByWorkerFinish :: (MonadState GameState m) => [Direction] -> m ()
 moveBoxesByWorkerFinish dirs = do
   diffs' <- sequenceA <$> mapM doMove dirs
   case diffs' of
@@ -475,8 +505,7 @@ moveBoxesByWorkerFinish dirs = do
       viewState . animateRequired .= True
       viewState . animationMode .= AnimationDo
 
-
-tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
+tryMove1Box :: (MonadState GameState m) => Point -> Point -> m [Direction]
 tryMove1Box s t = do
   gs <- get
   let sourcePds = findBoxDirections gs s
@@ -508,15 +537,15 @@ eraseBoxes boxez gs =
     guy <- use (levelState . worker)
     wc <- getCell guy
     case wc of
-      Worker _       -> updateCell guy Empty
+      Worker _ -> updateCell guy Empty
       WorkerOnGoal _ -> updateCell guy Goal
-      _              -> return ()
+      _ -> return ()
     forM_ boxez $ \box -> do
       bc <- getCell box
       case bc of
-        Box       -> updateCell box Empty
+        Box -> updateCell box Empty
         BoxOnGoal -> updateCell box Goal
-        _         -> return ()
+        _ -> return ()
 
 --     forall m. MonadState GameState m
 findBoxDirections :: GameState -> Point -> [PD]
@@ -541,26 +570,26 @@ findBoxDirections gs box =
     let dirPoints = uncurry (PD box) . second convPathToDirections <$> filter (not . null . snd) augPaths
     return dirPoints
 
-
 buildMoveSolver ::
-     forall m n. (PrimMonad m, MonadState GameState n)
-  => SolverContext m
-  -> Point
-  -> [Point]
-  -> m (AStarSolver n Point)
+  forall m n.
+  (PrimMonad m, MonadState GameState n) =>
+  SolverContext m ->
+  Point ->
+  [Point] ->
+  m (AStarSolver n Point)
 buildMoveSolver ctx dst walls = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
   let nodesBound = m * n * 2
   return $
     AStarSolver
-      { neighbors = neighbors
-      , distance = distance
-      , heuristic = heuristic
-      , stopCond = stopCond
-      , projection = point2kN n
-      , injection = k2pointN n
-      , nodesBound = nodesBound
+      { neighbors = neighbors,
+        distance = distance,
+        heuristic = heuristic,
+        stopCond = stopCond,
+        projection = point2kN n,
+        injection = k2pointN n,
+        nodesBound = nodesBound
       }
   where
     neighbors :: (MonadState GameState n) => Point -> n [Point]
@@ -579,23 +608,24 @@ buildMoveSolver ctx dst walls = do
     stopCond = (==) dst
 
 buildPushSolver ::
-     forall m. PrimMonad m
-  => SolverContext m
-  -> PD
-  -> m (AStarSolver (StateT GameState m) PD)
+  forall m.
+  (PrimMonad m) =>
+  SolverContext m ->
+  PD ->
+  m (AStarSolver (StateT GameState m) PD)
 buildPushSolver ctx dst = do
   let m = ctx ^. cHeight
   let n = ctx ^. cWidth
   let nodesBound = m * n * 4
   return $
     AStarSolver
-      { neighbors = neighbors
-      , distance = distance
-      , heuristic = heuristic
-      , stopCond = stopCond
-      , projection = pd2kN n
-      , injection = k2pdN n
-      , nodesBound = nodesBound
+      { neighbors = neighbors,
+        distance = distance,
+        heuristic = heuristic,
+        stopCond = stopCond,
+        projection = pd2kN n,
+        injection = k2pdN n,
+        nodesBound = nodesBound
       }
   where
     neighbors (PD p0 d0 _ds0) = do
@@ -620,12 +650,10 @@ buildPushSolver ctx dst = do
       let PD t _ _ = dst
        in p == t
 
-
 distPP :: Point -> Point -> Int
 distPP (Point i1 j1) (Point i2 j2) = abs (i2 - i1) + abs (j2 - j1)
 
-
-pdNeighbor :: PrimMonad m => SolverContext m -> PD -> Direction -> StateT GameState m (Maybe PD)
+pdNeighbor :: (PrimMonad m) => SolverContext m -> PD -> Direction -> StateT GameState m (Maybe PD)
 pdNeighbor ctx pd d = do
   let (PD p d0 _) = pd
   let walls = [p]
@@ -644,9 +672,8 @@ pdNeighbor ctx pd d = do
           let dirs = convPathToDirections points <> [d]
           return $ Just $ PD p2 d dirs
 
-
 cachingFindPath ::
-     PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
+  (PrimMonad m) => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
 cachingFindPath ctx walls d src dst = do
   moveSolver <- lift $ buildMoveSolver ctx dst walls
   let pc = ctx ^. pathCache
@@ -658,15 +685,15 @@ cachingFindPath ctx walls d src dst = do
       HM.insert pc (walls, d, src, dst) path
       return path
 
-isAccessible :: MonadState GameState m => Point -> m Bool
+isAccessible :: (MonadState GameState m) => Point -> m Bool
 isAccessible p = isEmptyOrGoal <$> getCell p
 
 directWorker :: Direction -> Cell -> Cell
 directWorker d cw =
   case cw of
-    Worker _       -> Worker d
+    Worker _ -> Worker d
     WorkerOnGoal _ -> WorkerOnGoal d
-    cell           -> cell
+    cell -> cell
 
 ---------------------------------------------------------------------------------------------
 -- build the initial state
@@ -680,20 +707,20 @@ initialLevelState level = do
     Nothing -> Nothing
     Just (worker, boxes, goals) ->
       return $
-      LevelState
-        { _id = level ^. L.id
-        , _cells = cells
-        , _origin = cells
-        , _height = m
-        , _width = n
-        , _worker = worker
-        , _boxes = boxes
-        , _goals = goals
-        , _isComplete = False
-        , _undoStack = []
-        , _undoIndex = -1
-        , _stats = Stats 0 0
-        }
+        LevelState
+          { _id = level ^. L.id,
+            _cells = cells,
+            _origin = cells,
+            _height = m,
+            _width = n,
+            _worker = worker,
+            _boxes = boxes,
+            _goals = goals,
+            _isComplete = False,
+            _undoStack = [],
+            _undoIndex = -1,
+            _stats = Stats 0 0
+          }
 
 -- extract worker, boxes and goals, needed to be run after start, restart or undo
 extractWBH :: MatrixCell -> Maybe (Point, S.HashSet Point, S.HashSet Point)
@@ -719,39 +746,39 @@ extractWBH xs =
 move :: (Cell, Cell, Cell) -> ((Cell, Cell, Cell), Maybe Bool)
 move triple =
   case triple of
-    (Worker d, Box, Empty)             -> ((Empty, Worker d, Box), Just True)
-    (Worker d, Box, Goal)              -> ((Empty, Worker d, BoxOnGoal), Just True)
-    (Worker d, BoxOnGoal, Empty)       -> ((Empty, WorkerOnGoal d, Box), Just True)
-    (Worker d, BoxOnGoal, Goal)        -> ((Empty, WorkerOnGoal d, BoxOnGoal), Just True)
-    (WorkerOnGoal d, Box, Empty)       -> ((Goal, Worker d, Box), Just True)
-    (WorkerOnGoal d, Box, Goal)        -> ((Goal, Worker d, BoxOnGoal), Just True)
+    (Worker d, Box, Empty) -> ((Empty, Worker d, Box), Just True)
+    (Worker d, Box, Goal) -> ((Empty, Worker d, BoxOnGoal), Just True)
+    (Worker d, BoxOnGoal, Empty) -> ((Empty, WorkerOnGoal d, Box), Just True)
+    (Worker d, BoxOnGoal, Goal) -> ((Empty, WorkerOnGoal d, BoxOnGoal), Just True)
+    (WorkerOnGoal d, Box, Empty) -> ((Goal, Worker d, Box), Just True)
+    (WorkerOnGoal d, Box, Goal) -> ((Goal, Worker d, BoxOnGoal), Just True)
     (WorkerOnGoal d, BoxOnGoal, Empty) -> ((Goal, WorkerOnGoal d, Box), Just True)
-    (WorkerOnGoal d, BoxOnGoal, Goal)  -> ((Goal, WorkerOnGoal d, BoxOnGoal), Just True)
-    (Worker d, Empty, c3)              -> ((Empty, Worker d, c3), Just False)
-    (Worker d, Goal, c3)               -> ((Empty, WorkerOnGoal d, c3), Just False)
-    (WorkerOnGoal d, Empty, c3)        -> ((Goal, Worker d, c3), Just False)
-    (WorkerOnGoal d, Goal, c3)         -> ((Goal, WorkerOnGoal d, c3), Just False)
-    _                                  -> (triple, Nothing)
+    (WorkerOnGoal d, BoxOnGoal, Goal) -> ((Goal, WorkerOnGoal d, BoxOnGoal), Just True)
+    (Worker d, Empty, c3) -> ((Empty, Worker d, c3), Just False)
+    (Worker d, Goal, c3) -> ((Empty, WorkerOnGoal d, c3), Just False)
+    (WorkerOnGoal d, Empty, c3) -> ((Goal, Worker d, c3), Just False)
+    (WorkerOnGoal d, Goal, c3) -> ((Goal, WorkerOnGoal d, c3), Just False)
+    _ -> (triple, Nothing)
 
 -- mirroring of move function
 unMove :: (Cell, Cell, Cell) -> Bool -> (Cell, Cell, Cell)
 unMove triple isPush =
   case (triple, Just isPush) of
-    ((Empty, Worker d, Box), Just True)             -> (Worker d, Box, Empty)
-    ((Empty, Worker d, BoxOnGoal), Just True)       -> (Worker d, Box, Goal)
-    ((Empty, WorkerOnGoal d, Box), Just True)       -> (Worker d, BoxOnGoal, Empty)
+    ((Empty, Worker d, Box), Just True) -> (Worker d, Box, Empty)
+    ((Empty, Worker d, BoxOnGoal), Just True) -> (Worker d, Box, Goal)
+    ((Empty, WorkerOnGoal d, Box), Just True) -> (Worker d, BoxOnGoal, Empty)
     ((Empty, WorkerOnGoal d, BoxOnGoal), Just True) -> (Worker d, BoxOnGoal, Goal)
-    ((Goal, Worker d, Box), Just True)              -> (WorkerOnGoal d, Box, Empty)
-    ((Goal, Worker d, BoxOnGoal), Just True)        -> (WorkerOnGoal d, Box, Goal)
-    ((Goal, WorkerOnGoal d, Box), Just True)        -> (WorkerOnGoal d, BoxOnGoal, Empty)
-    ((Goal, WorkerOnGoal d, BoxOnGoal), Just True)  -> (WorkerOnGoal d, BoxOnGoal, Goal)
-    ((Empty, Worker d, c3), Just False)             -> (Worker d, Empty, c3)
-    ((Empty, WorkerOnGoal d, c3), Just False)       -> (Worker d, Goal, c3)
-    ((Goal, Worker d, c3), Just False)              -> (WorkerOnGoal d, Empty, c3)
-    ((Goal, WorkerOnGoal d, c3), Just False)        -> (WorkerOnGoal d, Goal, c3)
-    _                                               -> triple
+    ((Goal, Worker d, Box), Just True) -> (WorkerOnGoal d, Box, Empty)
+    ((Goal, Worker d, BoxOnGoal), Just True) -> (WorkerOnGoal d, Box, Goal)
+    ((Goal, WorkerOnGoal d, Box), Just True) -> (WorkerOnGoal d, BoxOnGoal, Empty)
+    ((Goal, WorkerOnGoal d, BoxOnGoal), Just True) -> (WorkerOnGoal d, BoxOnGoal, Goal)
+    ((Empty, Worker d, c3), Just False) -> (Worker d, Empty, c3)
+    ((Empty, WorkerOnGoal d, c3), Just False) -> (Worker d, Goal, c3)
+    ((Goal, Worker d, c3), Just False) -> (WorkerOnGoal d, Empty, c3)
+    ((Goal, WorkerOnGoal d, c3), Just False) -> (WorkerOnGoal d, Goal, c3)
+    _ -> triple
 
-getCell :: MonadState GameState m => Point -> m Cell
+getCell :: (MonadState GameState m) => Point -> m Cell
 getCell p = do
   ls <- use levelState
   let m = ls ^. height
@@ -761,7 +788,7 @@ getCell p = do
     then return $ ((ls ^. cells) ! i) ! j
     else return Wall
 
-updateCell :: MonadState GameState m => Point -> Cell -> m ()
+updateCell :: (MonadState GameState m) => Point -> Cell -> m ()
 updateCell p cell = do
   ls <- use levelState
   let cs = ls ^. cells
@@ -784,8 +811,8 @@ showState gs =
     forM_ points $ \p -> do
       let Point i j = p
       let ch = getCellBuilder $ (cs ! i) ! j
-      this <>=
-        if j /= 0
+      this
+        <>= if j /= 0
           then TB.char ' ' <> ch
           else ch
       when (j == n - 1) $ this <>= TB.char '\n'
@@ -796,27 +823,26 @@ showState gs =
     getCellBuilder :: Cell -> TB.Builder
     getCellBuilder c =
       case c of
-        Worker _       -> TB.char '@'
+        Worker _ -> TB.char '@'
         WorkerOnGoal _ -> TB.char '+'
-        Goal           -> TB.char '.'
-        Box            -> TB.char '$'
-        BoxOnGoal      -> TB.char '*'
-        Empty          -> TB.char ' '
-        Wall           -> TB.char '#'
+        Goal -> TB.char '.'
+        Box -> TB.char '$'
+        BoxOnGoal -> TB.char '*'
+        Empty -> TB.char ' '
+        Wall -> TB.char '#'
 
 convPathToDirections :: [Point] -> [Direction]
 convPathToDirections ps = reverse $ convert ps []
   where
     convert [] _acc = []
     convert [_] acc = acc
-    convert (p1:p2:ps) acc =
+    convert (p1 : p2 : ps) acc =
       case deriveDir p1 p2 of
         Nothing -> acc
-        Just d  -> convert (p2 : ps) (d : acc)
+        Just d -> convert (p2 : ps) (d : acc)
 
 convPushPathToDirections :: [PD] -> [Direction]
 convPushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
-
 
 point2kN :: Int -> Point -> Int
 point2kN n (Point i j) = i * n + j

@@ -1,17 +1,15 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Sokoban.Parser where
 
-import Data.Char       (isSpace)
-import Data.List       (find, partition)
+import Data.Char (isSpace)
+import Data.List (find, partition)
 import Data.List.Extra (dropEnd)
-import Data.Maybe      (fromMaybe, isJust, listToMaybe)
-import Sokoban.Level   (Cell(..), Direction(..), Level(..))
-
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Text as T
-
+import Sokoban.Level (Cell (..), Direction (..), Level (..))
 
 parseLevels :: T.Text -> Maybe [Level]
 parseLevels raw = traverse parseLevel (splitWith (not . T.all isSpace) . T.lines $ raw)
@@ -27,7 +25,7 @@ parseLevel rawLines = do
   let cells' = traverse (traverse parseCell) field
   case cells' of
     Just cells -> Just Level {_cells = cells, _height = h, _width = w, _id = name}
-    Nothing    -> Nothing
+    Nothing -> Nothing
 
 parseCell :: Char -> Maybe Cell
 parseCell c =
@@ -39,7 +37,7 @@ parseCell c =
     '.' -> Just Goal
     '$' -> Just Box
     '*' -> Just BoxOnGoal
-    _   -> Nothing
+    _ -> Nothing
 
 buildDescription :: [String] -> T.Text
 buildDescription xs = T.pack $ dropWhile (== ' ') $ concat pieces
@@ -65,10 +63,10 @@ deinterlace :: [String] -> [String]
 deinterlace xs =
   let zs = map (zip [0 ..]) xs
    in if all isSpace $ concatMap (map snd . filter odds) zs
-        -- the field is space-interleaved
-        then map (map snd . filter evens) zs
-        -- the field is compact
-        else map (map snd) zs
+        then -- the field is space-interleaved
+          map (map snd . filter evens) zs
+        else -- the field is compact
+          map (map snd) zs
 
 odds :: (Integer, b) -> Bool
 odds (i, _) = i `mod` 2 == 1
@@ -76,22 +74,22 @@ odds (i, _) = i `mod` 2 == 1
 evens :: (Integer, b) -> Bool
 evens (i, _) = i `mod` 2 == 0
 
-commonPrefix :: Eq a => (a -> Bool) -> [a] -> [a] -> [a]
+commonPrefix :: (Eq a) => (a -> Bool) -> [a] -> [a] -> [a]
 commonPrefix _ _ [] = []
 commonPrefix _ [] _ = []
-commonPrefix p (x:xs) (y:ys) =
+commonPrefix p (x : xs) (y : ys) =
   if x == y && p x
     then x : commonPrefix p xs ys
     else []
 
-commonSuffix :: Eq a => (a -> Bool) -> [a] -> [a] -> [a]
+commonSuffix :: (Eq a) => (a -> Bool) -> [a] -> [a] -> [a]
 commonSuffix p xs ys = commonPrefix p (reverse xs) (reverse ys)
 
 -- taken from https://stackoverflow.com/a/19927596/5066426
 splitWith :: (t -> Bool) -> [t] -> [[t]]
-splitWith pred (x:xs)
+splitWith pred (x : xs)
   | pred x =
-    let (first, rest) = span pred (x : xs)
-     in first : splitWith pred rest
+      let (first, rest) = span pred (x : xs)
+       in first : splitWith pred rest
   | otherwise = splitWith pred xs
 splitWith _pred [] = []

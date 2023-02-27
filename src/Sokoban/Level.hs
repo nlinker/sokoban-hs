@@ -1,33 +1,32 @@
-{-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE DeriveDataTypeable    #-}
-{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE StandaloneDeriving    #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Sokoban.Level where
 
-import Control.Lens                ((^.))
-import Control.Lens.TH             (makeLenses, makePrisms)
-import Control.Monad               (liftM)
-import Data.Hashable               (Hashable)
-import Data.Vector.Unboxed.Base    (MVector(..), Vector(..))
-import Data.Vector.Unboxed.Mutable (Unbox)
-import Data.Word                   (Word8)
-import GHC.Generics                (Generic)
-import Control.Arrow               ((&&&))
-import Data.Function               (on)
-
-import qualified Data.Text                   as T
-import qualified Data.Vector.Generic         as G
+import Control.Arrow ((&&&))
+import Control.Lens ((^.))
+import Control.Lens.TH (makeLenses, makePrisms)
+import Control.Monad (liftM)
+import Data.Function (on)
+import Data.Hashable (Hashable)
+import qualified Data.Text as T
+import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as M
-import qualified Data.Vector.Primitive       as P
+import qualified Data.Vector.Primitive as P
+import Data.Vector.Unboxed.Base (MVector (..), Vector (..))
+import Data.Vector.Unboxed.Mutable (Unbox)
+import Data.Word (Word8)
+import GHC.Generics (Generic)
 
 data Direction
   = U
@@ -46,30 +45,28 @@ data Cell
   | Wall
   deriving (Eq, Show)
 
-data Level =
-  Level
-    { _cells  :: ![[Cell]]
-    , _height :: !Int
-    , _width  :: !Int
-    , _id     :: !T.Text
-    }
+data Level = Level
+  { _cells :: ![[Cell]],
+    _height :: !Int,
+    _width :: !Int,
+    _id :: !T.Text
+  }
   deriving (Eq, Show)
 
 -- Fields are took from SLC format, but more flattened
 -- e.g. http://www.sourcecode.se/sokoban/download/microban.slc
-data LevelCollection =
-  LevelCollection
-    { _title       :: !T.Text
-    , _description :: !T.Text
-    , _email       :: !T.Text
-    , _url         :: !T.Text
-    , _copyright   :: !T.Text
-    , _levels      :: ![Level]
-    }
+data LevelCollection = LevelCollection
+  { _title :: !T.Text,
+    _description :: !T.Text,
+    _email :: !T.Text,
+    _url :: !T.Text,
+    _copyright :: !T.Text,
+    _levels :: ![Level]
+  }
   deriving (Eq, Show)
 
-data Point =
-  Point Int Int
+data Point
+  = Point Int Int
   deriving (Eq, Generic, Hashable)
 
 instance Ord Point where
@@ -79,8 +76,8 @@ instance Show Point where
   show (Point i j) = show i <> "∙" <> show j
 
 -- directed point, we can use this for boxes
-data PD =
-  PD Point Direction [Direction]
+data PD
+  = PD Point Direction [Direction]
   deriving (Eq, Generic, Hashable)
 
 makeLenses ''Level
@@ -119,39 +116,39 @@ deriveDir :: Point -> Point -> Maybe Direction
 deriveDir (Point i1 j1) (Point i2 j2) =
   case (i2 - i1, j2 - j1) of
     (-1, 0) -> Just U
-    (1, 0)  -> Just D
+    (1, 0) -> Just D
     (0, -1) -> Just L
-    (0, 1)  -> Just R
-    _       -> Nothing
+    (0, 1) -> Just R
+    _ -> Nothing
 
 isWorker :: Cell -> Bool
 isWorker c =
   case c of
-    (Worker _)       -> True
+    (Worker _) -> True
     (WorkerOnGoal _) -> True
-    _                -> False
+    _ -> False
 
 isBox :: Cell -> Bool
 isBox c =
   case c of
-    Box       -> True
+    Box -> True
     BoxOnGoal -> True
-    _         -> False
+    _ -> False
 
 isEmptyOrGoal :: Cell -> Bool
 isEmptyOrGoal c =
   case c of
     Empty -> True
-    Goal  -> True
-    _     -> False
+    Goal -> True
+    _ -> False
 
 isGoal :: Cell -> Bool
 isGoal c =
   case c of
-    Goal           -> True
-    BoxOnGoal      -> True
+    Goal -> True
+    BoxOnGoal -> True
     WorkerOnGoal _ -> True
-    _              -> False
+    _ -> False
 
 isWall :: Cell -> Bool
 isWall c = c == Wall
@@ -181,13 +178,13 @@ fromCell :: Cell -> Word8
 {-# INLINE fromCell #-}
 fromCell c =
   case c of
-    Empty          -> 0 * 8 + 0
-    Box            -> 0 * 8 + 1
-    Worker d       -> 0 * 8 + 4 + w8FromDirection d
-    Goal           -> 1 * 8 + 0
-    BoxOnGoal      -> 1 * 8 + 1
+    Empty -> 0 * 8 + 0
+    Box -> 0 * 8 + 1
+    Worker d -> 0 * 8 + 4 + w8FromDirection d
+    Goal -> 1 * 8 + 0
+    BoxOnGoal -> 1 * 8 + 1
     WorkerOnGoal d -> 1 * 8 + 4 + w8FromDirection d
-    Wall           -> 2 * 8 + 0
+    Wall -> 2 * 8 + 0
 
 toCell :: Word8 -> Cell
 {-# INLINE toCell #-}
@@ -201,15 +198,15 @@ toCell w =
         (1, 0) -> Goal
         (1, 1) -> BoxOnGoal
         (1, d) -> WorkerOnGoal (w8ToDirection (d - 4))
-        _      -> Wall
+        _ -> Wall
 
 ---------------------------------------------------------------
 -- below is the necessary instances to make vector of Cell's --
 ---------------------------------------------------------------
 
-newtype instance  MVector s Cell = MV_Cell (P.MVector s Word8)
+newtype instance MVector s Cell = MV_Cell (P.MVector s Word8)
 
-newtype instance  Vector Cell = V_Cell (P.Vector Word8)
+newtype instance Vector Cell = V_Cell (P.Vector Word8)
 
 instance Unbox Cell
 

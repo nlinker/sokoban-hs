@@ -1,15 +1,15 @@
 module Sokoban.Keys where
 
 import Control.Concurrent.STM (TChan, atomically, writeTChan)
-import Data.Char              (isDigit)
-import Data.List              (isSuffixOf, stripPrefix)
-import Sokoban.Level          (Direction(..), Point(..))
-import Sokoban.Parser         (splitWith)
-import System.IO              (hReady, stdin)
-import Text.Read              (readMaybe)
+import Control.Monad (forM_, join)
 import Control.Monad.Trans.Maybe (runMaybeT)
-import Control.Monad (join, forM_)
+import Data.Char (isDigit)
+import Data.List (isSuffixOf, stripPrefix)
 import Data.Maybe (fromMaybe)
+import Sokoban.Level (Direction (..), Point (..))
+import Sokoban.Parser (splitWith)
+import System.IO (hReady, stdin)
+import Text.Read (readMaybe)
 
 data Key
   = Arrow Direction
@@ -53,9 +53,10 @@ getKey = reverse <$> getKey' ""
     getKey' chars = do
       char <- getChar
       more <- hReady stdin
-      (if more
-         then getKey'
-         else return)
+      ( if more
+          then getKey'
+          else return
+        )
         (char : chars)
 
 extractMouseClick :: String -> Maybe (Point, Bool)
@@ -65,4 +66,4 @@ extractMouseClick key = do
   let lbmDown = "M" `isSuffixOf` rest
   case readMaybe <$> splitWith isDigit rest :: [Maybe Int] of
     [Just x, Just y] -> Just (Point (y - 2) ((x - 3) `div` 2), lbmDown)
-    _                -> Nothing
+    _ -> Nothing
