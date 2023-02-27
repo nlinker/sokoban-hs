@@ -1,3 +1,0 @@
-module Sokoban.Data where
-
-

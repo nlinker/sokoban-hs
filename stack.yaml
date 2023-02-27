@@ -5,3 +5,5 @@ packages:
 
 extra-deps:
   - cabal-info-0.1.0.0
+  - github: nlinker/impure-containers
+    commit: e5582910c313bd937d2f6ae099e1be507a8e6353

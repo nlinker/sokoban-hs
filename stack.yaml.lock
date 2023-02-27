@@ -11,6 +11,17 @@ packages:
       size: 459
   original:
     hackage: cabal-info-0.1.0.0
+- completed:
+    name: impure-containers
+    pantry-tree:
+      sha256: 8cc71e2d96078a472d63d15ccb3a2d435ec1589908e64d5fec8521c3f80055c9
+      size: 3576
+    sha256: 84f3e204f8680e433b1cecb70bc6cb9ef0fa0dfcad0d94fb7e7f678f977b7b67
+    size: 52988
+    url: https://github.com/nlinker/impure-containers/archive/e5582910c313bd937d2f6ae099e1be507a8e6353.tar.gz
+    version: 0.5.1
+  original:
+    url: https://github.com/nlinker/impure-containers/archive/e5582910c313bd937d2f6ae099e1be507a8e6353.tar.gz
 snapshots:
 - completed:
     sha256: adbc602422dde10cc330175da7de8609e70afc41449a7e2d6e8b1827aa0e5008

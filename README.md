@@ -2,8 +2,9 @@
 
 The goal is to build flexible testable model of the game, and make IO layer as thin as possible.
 
-Also the game should implement advanced move-ability control with reachability test, and such algorithms are usually hard to implement in Haskell. This project has it implemented using
-**mutable** data structures, see [`Solver.hs`](src/Sokoban/Solver.hs) module.
+Also the game should implement advanced move-ability control with reachability test, and such algorithms 
+are usually hard to implement in Haskell. This project has it implemented using
+**mutable** data structures, see [`Solver.hs`](src/Sokoban/Solver.hs) module. (Currently the data structures are copied from [impure-containers](https://hackage.haskell.org/package/impure-containers)).
 
 ![Box reachability demo](docs/sokoban.gif)
 
