@@ -21,9 +21,9 @@ import Data.Vector.Unboxed.Base    (MVector(..), Vector(..))
 import Data.Vector.Unboxed.Mutable (Unbox)
 import Data.Word                   (Word8)
 import GHC.Generics                (Generic)
+import Control.Arrow               ((&&&))
+import Data.Function               (on)
 
-import           Control.Arrow               ((&&&))
-import           Data.Function               (on)
 import qualified Data.Text                   as T
 import qualified Data.Vector.Generic         as G
 import qualified Data.Vector.Generic.Mutable as M
@@ -83,17 +83,6 @@ data PD =
   PD Point Direction [Direction]
   deriving (Eq, Generic, Hashable)
 
--- double directed point, we can use this for box moves
-data PPD =
-  PPD
-    { _ppdFst   :: Point
-    , _ppdSnd   :: Point
-    , _ppdDir   :: Direction
-    , _ppdIdx   :: Int
-    , _ppdDirs :: [Direction]
-    }
-  deriving (Eq, Generic, Hashable)
-
 makeLenses ''Level
 
 makeLenses ''LevelCollection
@@ -102,29 +91,11 @@ makePrisms ''Point
 
 makePrisms ''PD
 
-makeLenses ''PPD
-
-ppdSelector :: Functor f => (Point -> f Point) -> PPD -> f PPD
-ppdSelector f ppd@(PPD _ _ _ i _) = if i == 0 then ppdFst f ppd else ppdSnd f ppd
-
 instance Show PD where
   show (PD (Point i j) d dirs) = "(" <> show i <> "∙" <> show j <> " " <> show d <> " " <> show dirs <> ")"
 
 instance Ord PD where
   compare (PD p1 d1 ds1) (PD p2 d2 ds2) = compare (p1, d1, ds1) (p2, d2, ds2)
-
-instance Show PPD where
-  show pd =
-    "(" <> show (pd ^. ppdFst) <> " " <> show (pd ^. ppdSnd) <> 
-    " " <> show (pd ^. ppdDir) <> " " <> show (pd ^. ppdIdx) <>
-    " " <> show (pd ^. ppdDirs) <> ")"
-
-instance Ord PPD where
-  compare = compare `on` (_ppdFst &&& _ppdSnd &&& _ppdDir &&& _ppdIdx)
-  -- elegant variation for
-  --   compare pd1 pd2 = compare
-  --     (pd1 ^. pointFst, pd1 ^. pointSnd, pd1 ^. dirFst, pd1 ^. dirSnd)
-  --     (pd2 ^. pointFst, pd2 ^. pointSnd, pd2 ^. dirFst, pd2 ^. dirSnd)
 
 -- We use screen (not Decartes) coordinates (i, j).
 -- The origin is in the upper left corner.
@@ -231,6 +202,10 @@ toCell w =
         (1, 1) -> BoxOnGoal
         (1, d) -> WorkerOnGoal (w8ToDirection (d - 4))
         _      -> Wall
+
+---------------------------------------------------------------
+-- below is the necessary instances to make vector of Cell's --
+---------------------------------------------------------------
 
 newtype instance  MVector s Cell = MV_Cell (P.MVector s Word8)
 

@@ -12,8 +12,9 @@ import Sokoban.Level   (Cell(..), Direction(..), Level(..))
 
 import qualified Data.Text as T
 
+
 parseLevels :: T.Text -> Maybe [Level]
-parseLevels raw = sequenceA $ parseLevel <$> (splitWith (not . T.all isSpace) . T.lines $ raw)
+parseLevels raw = traverse parseLevel (splitWith (not . T.all isSpace) . T.lines $ raw)
 
 parseLevel :: [T.Text] -> Maybe Level
 parseLevel rawLines = do

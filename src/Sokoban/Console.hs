@@ -15,9 +15,10 @@ module Sokoban.Console where
 
 import Prelude hiding (id)
 
+import Debug                      (setDebugModeM)
 import Control.Concurrent         (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.STM     (TChan, TVar, atomically, newTChanIO,
-                                   newTVarIO, readTChan, readTVar, writeTChan, writeTVar)
+                                   newTVarIO, readTChan, readTVar, writeTChan, writeTVar, readTVarIO)
 import Control.Exception          (finally)
 import Control.Lens               (Lens', lens, use, (%=), (&), (.=), (.~), (^.))
 import Control.Monad              (forM_, replicateM_, unless, when)
@@ -25,16 +26,15 @@ import Control.Monad.Primitive    (PrimMonad)
 import Control.Monad.State.Strict (MonadState, StateT, execState, runState)
 import Data.Maybe                 (fromMaybe, isJust)
 import Data.Vector                ((!))
-import Sokoban.Debug              (setDebugModeM)
-import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), PPD, Point(..),
-                                   isBox, isEmptyOrGoal, isWorker, levels)
+import Sokoban.Level              (Cell(..), Direction(..), LevelCollection(..), Point(..),
+                                   isBox, isEmptyOrGoal, isWorker, levels, PD(..))
 import Sokoban.Model              (AnimationMode(..), GameState(..), SolverContext(..),
-                                   ViewState(..), animateRequired, animationMode, buildPushSolver2,
-                                   cells, clicks, destinations, direction, doClearScreen, doMove,
+                                   ViewState(..), animateRequired, animationMode, cells,
+                                   clicks, destinations, direction, doClearScreen, doMove,
                                    eraseBoxes, getCell, height, id, initialLevelState, isComplete,
                                    levelState, levelState, message, moveCount, progress, pushCount,
                                    stats, step, undoIndex, undoMove, undoStack, viewState, width,
-                                   _UndoItem)
+                                   _UndoItem, buildPushSolver)
 import Sokoban.Parser             (parseLevels)
 import Sokoban.Resources          (testCollection)
 import Sokoban.Solver             (AStarSolver)
@@ -67,6 +67,7 @@ whenWith a p runA =
 data Message
   = MsgKey K.Key
   | MsgTick
+
 
 -- | run console game
 run :: IO ()
@@ -102,6 +103,7 @@ run = do
       putStrLn "\ESC[?1006l"
       putStrLn "\ESC[?1015l"
       putStrLn "\ESC[?1000l"
+
 
 buildGameState :: [String] -> IO GameState
 buildGameState args = do
@@ -243,6 +245,9 @@ animate gsFrom gsTo = do
       threadDelay animationTickDelayInUndoRedo
       animateRedo gs2 dirs
 
+
+-- | The function converts the current click (coordinates, is_left_button_down)
+-- | to the action. GameState is passed because the ViewState might be changed as well
 interpretClick :: GameState -> (Point, Bool) -> (Maybe A.Action, GameState)
 interpretClick gs click = runState runInterpretClick gs
   where
@@ -292,26 +297,8 @@ interpretClick gs click = runState runInterpretClick gs
                        | otherwise -> do
                          viewState . clicks .= []
                          return Nothing
-                     ([p2, p1, p0], [c2, c1, c0])
-                       | isBox c0 && isBox c1 && isDestination c2 -> do
-                         viewState . clicks .= [p2, p1, p0]
-                         return Nothing
-                       | otherwise -> do
-                         viewState . clicks .= []
-                         return Nothing
-                     ([p3, p2, p1, p0], [c3, c2, c1, c0])
-                       | isBox c0 && isBox c1 && isDestination c2 && isDestination c3 -> do
-                         viewState . clicks .= [p3, p2, p1, p0]
-                         return $ Just $ A.MoveBoxesStart [p0, p1] [p2, p3]
-                     ([p3, p2, p1, p0], [c3, c2, c1, c0])
-                       | isBox c0 && isBox c1 && isDestination c2 && isBox c3 -> do
-                         viewState . clicks .= [p3, p2, p1, p0]
-                         return $ Just $ A.MoveBoxesStart [p0, p1] [p2, p3]
-                       | otherwise -> do
-                         viewState . clicks .= []
-                         return Nothing
-                     _ -> do
-                       viewState . clicks .= [] -- reset tracking clicks
+                     (_, _) -> do
+                       viewState . clicks .= []
                        viewState . destinations .= S.empty
                        return Nothing
                  case action of
@@ -432,18 +419,18 @@ runTestPerf = do
 sources :: [(Direction, Integer)]
 ctx :: SolverContext IO
 gsa, gs0 :: GameState
-ps2 :: AStarSolver (StateT GameState IO) PPD
-(gsa, gs0, ctx, sources, ps2) =
+ps1 :: AStarSolver (StateT GameState IO) PD
+(gsa, gs0, ctx, sources, ps1) =
   unsafePerformIO $ do
     gs1 <- buildGameState []
     let gs0 = step gs1 (A.MoveWorker (Point 7 2))
     let gs = eraseBoxes [Point 11 2, Point 7 3] gs0
     ctx <- ctxGs gs
-    ps2 <- buildPushSolver2 ctx (Point 5 1, Point 5 2)
+    ps1 <- buildPushSolver ctx (PD (Point 5 1) U [])
     let part0 = map (, 0) [U, D, L, R]
     let part1 = map (, 1) [U, D, L, R]
     let sources = part0 <> part1
-    return (gs, gs0, ctx, sources, ps2)
+    return (gs, gs0, ctx, sources, ps1)
   where
     ctxGs :: PrimMonad m => GameState -> m (SolverContext m)
     ctxGs gs = do
@@ -486,7 +473,7 @@ stmExample = do
     milliSleep = threadDelay . (*) 1000
 
 atomRead :: TVar a -> IO a
-atomRead = atomically . readTVar
+atomRead = readTVarIO
 
 dispVar :: Show a => TVar a -> IO ()
 dispVar x = atomRead x >>= print

@@ -13,13 +13,13 @@ library:
     - src
   exposed-modules:
     - Sokoban.Console
-    - Sokoban.Debug
     - Sokoban.Keys
     - Sokoban.Level
     - Sokoban.Model
     - Sokoban.Parser
     - Sokoban.Resources
     - Sokoban.Solver
+    - Debug
     - Helper
   other-modules:        
     - Paths_sokoban

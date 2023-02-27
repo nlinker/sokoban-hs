@@ -1,7 +1,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE Strict        #-}
 
-module Sokoban.Debug where
+module Debug where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
 import System.IO.Unsafe        (unsafePerformIO)

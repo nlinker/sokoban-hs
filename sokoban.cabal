@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 93b2c7abe15ea89afd46036af7c28cc75e3a06e9390405feb7e61a81d547a2d5
+-- hash: 8156ce6aee9f60a1a7ad18dd0643d07b485ac041d524c594c38e7b9505c20b7b
 
 name:           sokoban
 version:        0.1.0
@@ -23,13 +23,13 @@ source-repository head
 library
   exposed-modules:
       Sokoban.Console
-      Sokoban.Debug
       Sokoban.Keys
       Sokoban.Level
       Sokoban.Model
       Sokoban.Parser
       Sokoban.Resources
       Sokoban.Solver
+      Debug
       Helper
   other-modules:
       Paths_sokoban

@@ -19,6 +19,7 @@ module Sokoban.Model where
 import           Prelude hiding (Left, Right, id)
 import qualified Prelude as P
 
+import Debug                      (getDebugModeM, setDebugModeM)
 import Control.Arrow              (second)
 -- import Control.Concurrent         (ThreadId(..))
 import Control.Concurrent.Async   (forConcurrently)
@@ -36,11 +37,9 @@ import Data.Foldable              (foldl', minimumBy)
 import Data.Maybe                 (catMaybes)
 import Data.Ord                   (comparing)
 import Data.Vector                (Vector, (!))
-import Sokoban.Debug              (getDebugModeM, setDebugModeM)
-import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), PPD(..),
+import Sokoban.Level              (Cell(..), Direction(..), Level, LevelCollection, PD(..), 
                                    Point(..), deriveDir, isBox, isEmptyOrGoal, isGoal, isWorker,
-                                   levels, movePoint, opposite, ppdDir, ppdDirs, ppdFst, ppdIdx,
-                                   ppdSelector, ppdSnd, w8FromDirection, w8ToDirection, _PD)
+                                   levels, movePoint, opposite, w8FromDirection, w8ToDirection, _PD)
 import Sokoban.Solver             (AStarSolver(..), aStarFind, breadFirstFind)
 import System.IO.Unsafe           (unsafePerformIO)
 import Text.InterpolatedString.QM (qm, qms)
@@ -448,6 +447,7 @@ computeBoxReachability box = do
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
 
+
 moveBoxesByWorkerCalc :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
 moveBoxesByWorkerCalc src dst =
   case (src, dst) of
@@ -458,13 +458,8 @@ moveBoxesByWorkerCalc src dst =
       -- viewState . message .= (dbgGs ^. viewState . message)
       -- viewState . doClearScreen .= True
       return dirs
-    ([s1, s2], [t1, t2]) -> do
-      erasedGs <- gets $ eraseBoxes [s1, s2]
-      let (dirs, _dbgGs) = runState (tryMove2Boxes [s1, s2] [t1, t2]) erasedGs
-      -- viewState . message .= (dbgGs ^. viewState . message)
-      -- viewState . doClearScreen .= True
-      return dirs
     _ -> return []
+
 
 moveBoxesByWorkerFinish :: MonadState GameState m => [Direction] -> m ()
 moveBoxesByWorkerFinish dirs = do
@@ -479,6 +474,7 @@ moveBoxesByWorkerFinish dirs = do
       levelState . undoIndex .= 0
       viewState . animateRequired .= True
       viewState . animationMode .= AnimationDo
+
 
 tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
 tryMove1Box s t = do
@@ -502,30 +498,6 @@ tryMove1Box s t = do
           else minimumBy (comparing length) nePaths
   return selected
 
-tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
-tryMove2Boxes ss ts = do
-  gs <- get
-  case (ss, ts) of
-    ([s1, s2], [t1, t2]) -> do
-      let sourcePpds = findBoxDirections2 gs (s1, s2)
-      let m = gs ^. levelState . height
-      let n = gs ^. levelState . width
-      paths <-
-        parallelForM sourcePpds $ \(src :: PPD) ->
-          return $ runST $ do
-            hm <- HM.new
-            let ctx = SolverContext hm m n
-            pushSolver <- buildPushSolver2 ctx (t1, t2)
-            ppds <- flip evalStateT gs $ aStarFind pushSolver src
-            return $ convPushPathToDirections2 ppds
-      let nePaths = filter (not . null) paths
-      let selected =
-            if null nePaths
-              then []
-              else minimumBy (comparing length) nePaths
-      return selected
-    (_, _) -> return []
-
 parallelForM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
 parallelForM xs f = sequenceA $ unsafePerformIO $ forConcurrently xs (return . f)
 
@@ -546,8 +518,8 @@ eraseBoxes boxez gs =
         BoxOnGoal -> updateCell box Goal
         _         -> return ()
 
-findBoxDirections :: GameState -> Point -> [PD]
 --     forall m. MonadState GameState m
+findBoxDirections :: GameState -> Point -> [PD]
 findBoxDirections gs box =
   runIdentity $ do
     let m = gs ^. levelState . height
@@ -569,47 +541,6 @@ findBoxDirections gs box =
     let dirPoints = uncurry (PD box) . second convPathToDirections <$> filter (not . null . snd) augPaths
     return dirPoints
 
-findBoxDirections2 :: GameState -> (Point, Point) -> [PPD]
-findBoxDirections2 gs (box1, box2) =
-  runIdentity $ do
-    let m = gs ^. levelState . height
-    let n = gs ^. levelState . width
-    let w = gs ^. levelState . worker
-    return $ runST $ do
-      hm <- HM.new
-      let ctx = SolverContext hm m n
-      flip evalStateT gs $ do
-        let part0 = map (box1, , 0) [U, D, L, R]
-        let part1 = map (box2, , 1) [U, D, L, R]
-        let sources = part0 <> part1
-        ppds' <-
-          forM sources $ \(box, d, i) -> do
-            let dst = movePoint box $ opposite d
-            -- here runMaybeT :: MaybeT (StateT GameState m) PPD -> StateT GameState m (Maybe PPD)
-            runMaybeT $ do
-              _acc <- MaybeT $ accessibleToMaybe <$> isAccessible dst
-              path <- MaybeT $ pathToMaybe <$> tryBuildPath ctx w dst
-              let dirs = convPathToDirections path
-              return $ PPD box1 box2 d i dirs
-        return $ catMaybes ppds'
-  where
-    tryBuildPath ::
-         forall m. (PrimMonad m)
-      => SolverContext (StateT GameState m)
-      -> Point
-      -> Point
-      -> StateT GameState m [Point]
-    tryBuildPath ctx src dst = do
-      moveSolver <- buildMoveSolver ctx dst [box1, box2]
-      aStarFind moveSolver src
-    accessibleToMaybe p =
-      if p
-        then Just ()
-        else Nothing
-    pathToMaybe xs =
-      if not $ null xs
-        then Just xs
-        else Nothing
 
 buildMoveSolver ::
      forall m n. (PrimMonad m, MonadState GameState n)
@@ -689,43 +620,10 @@ buildPushSolver ctx dst = do
       let PD t _ _ = dst
        in p == t
 
-buildPushSolver2 ::
-     forall m. PrimMonad m
-  => SolverContext m
-  -> (Point, Point)
-  -> m (AStarSolver (StateT GameState m) PPD)
-buildPushSolver2 ctx dst2 = do
-  let m = ctx ^. cHeight
-  let n = ctx ^. cWidth
-  let nodesBound = 2 * m * n * m * n * 8
-  return $
-    AStarSolver
-      { neighbors = neighbors ctx
-      , distance = distance
-      , heuristic = heuristic dst2
-      , stopCond = stopCond dst2
-      , projection = ppd2kMN m n
-      , injection = k2ppdMN m n
-      , nodesBound = nodesBound
-      }
-  where
-    neighbors :: PrimMonad m => SolverContext m -> PPD -> StateT GameState m [PPD]
-    neighbors ctx ppd = do
-      let part0 = map (, 0) [U, D, L, R]
-      let part1 = map (, 1) [U, D, L, R]
-      let sources = part0 <> part1
-      candidates <- mapM (uncurry (ppdNeighbor ctx ppd)) sources
-      return $ catMaybes candidates
-    -- valid for neighbors only
-    distance (PPD p0 q0 _ _ _) (PPD p1 q1 _ _ _) = fromEnum (p0 /= p1) + fromEnum (q0 /= q1)
-    stopCond dst (PPD p0 q0 _ _ _) = (p0, q0) == dst
-    -- heuristic = undefined
-    heuristic dst (PPD p0 q0 _d _i _dirs) = do
-      let (p1, q1) = dst
-      return $ distPP p1 p0 + distPP q1 q0
 
 distPP :: Point -> Point -> Int
 distPP (Point i1 j1) (Point i2 j2) = abs (i2 - i1) + abs (j2 - j1)
+
 
 pdNeighbor :: PrimMonad m => SolverContext m -> PD -> Direction -> StateT GameState m (Maybe PD)
 pdNeighbor ctx pd d = do
@@ -746,28 +644,6 @@ pdNeighbor ctx pd d = do
           let dirs = convPathToDirections points <> [d]
           return $ Just $ PD p2 d dirs
 
--- PD Point Direction [Direction]
-ppdNeighbor :: PrimMonad m => SolverContext m -> PPD -> Direction -> Int -> StateT GameState m (Maybe PPD)
-ppdNeighbor ctx ppd d i = do
-  let walls = [ppd ^. ppdFst, ppd ^. ppdSnd]
-  let p = walls !! i
-  -- invariant that the worker is
-  let w = movePoint (ppd ^. ppdSelector) $ opposite (ppd ^. ppdDir)
-  let p1 = movePoint p (opposite d)
-  let p2 = movePoint p d
-  accessible0 <- (p1 `notElem` walls &&) <$> isAccessible p1
-  accessible1 <- (p2 `notElem` walls &&) <$> isAccessible p2
-  if not (accessible0 && accessible1)
-    then return Nothing
-    else do
-      points <- cachingFindPath ctx walls d w p1
-      if null points
-        then return Nothing
-          --λ> ppd & ppdIdx .~ 0 & selector .~ p --> (0∙0 8∙4 R 0 [])
-          --λ> ppd & ppdIdx .~ 1 & selector .~ p --> (7∙4 0∙0 R 1 [])
-        else do
-          let dirs = convPathToDirections points <> [d]
-          return $ Just $ ppd & ppdIdx .~ i & ppdSelector .~ p2 & ppdDir .~ d & ppdDirs .~ dirs
 
 cachingFindPath ::
      PrimMonad m => SolverContext m -> [Point] -> Direction -> Point -> Point -> StateT GameState m [Point]
@@ -941,8 +817,6 @@ convPathToDirections ps = reverse $ convert ps []
 convPushPathToDirections :: [PD] -> [Direction]
 convPushPathToDirections pds = reverse $ foldl' (\acc pd -> reverse (pd ^. _PD . _3) <> acc) [] pds
 
-convPushPathToDirections2 :: [PPD] -> [Direction]
-convPushPathToDirections2 ppds = reverse $ foldl' (\acc ppd -> reverse (ppd ^. ppdDirs) <> acc) [] ppds
 
 point2kN :: Int -> Point -> Int
 point2kN n (Point i j) = i * n + j
@@ -958,22 +832,3 @@ k2pdN n k =
   let kdir = k `mod` 4
       k4 = k `div` 4
    in PD (Point (k4 `div` n) (k4 `mod` n)) (w8ToDirection (fromIntegral kdir)) []
-
-ppd2kMN :: Int -> Int -> PPD -> Int
-ppd2kMN m n (PPD (Point i1 j1) (Point i2 j2) d idx _) =
-  let k1 = i1 * n + j1
-      k2 = i2 * n + j2
-      mn = m * n
-   in (k1 * mn + k2) * 8 + fromIntegral (w8FromDirection d) * 2 + idx
-
-k2ppdMN :: Int -> Int -> Int -> PPD
-k2ppdMN m n k =
-  let (kpp, kdi) = k `divMod` 8
-      (kd, ki) = kdi `divMod` 2
-      mn = m * n
-      (kpp1, kpp2) = kpp `divMod` mn
-      p1 = Point (kpp1 `div` n) (kpp1 `mod` n)
-      p2 = Point (kpp2 `div` n) (kpp2 `mod` n)
-      d = w8ToDirection (fromIntegral kd)
-      i = ki
-   in PPD p1 p2 d i []
