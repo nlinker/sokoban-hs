@@ -27,6 +27,10 @@ stack exec sokoban
 1. ☑ Implement animations.
 1. ⍻ Replays and stored solutions.
 
+### The notes abount animation
+
+The notes are put here.
+
 
 ### Where to get sokoban levels
 
