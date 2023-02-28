@@ -29,7 +29,7 @@ stack exec sokoban
 
 ### The notes abount animation
 
-The notes are put here.
+The notes are put [here](docs/animation.md).
 
 
 ### Where to get sokoban levels
