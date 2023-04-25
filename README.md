@@ -80,3 +80,62 @@ D  ▼ ▽ ⬇ ⇩ ◪ ◒ ◓
 L  ◀ ◁ ⬅ ⇦ ⬕ ◐ ◑
 R  ▶ ▷ ➡ ⇨ ⬔ ◑ ◐
 ```
+
+
+```haskell
+
+moveBoxesByWorker :: MonadState GameState m => [Point] -> [Point] -> m ()
+moveBoxesByWorker src dst = do
+  dirs <-
+    case (src, dst) of
+      ([s], [t]) -> do
+        erasedGs <- gets $ eraseBoxes [s]
+        -- erase source box not to break path finding and avoid spoiling of the current gs
+        let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
+        -- viewState . message .= (dbgGs ^. viewState . message)
+        -- viewState . doClearScreen .= True
+        return dirs
+      ([s1, s2], [t1, t2]) -> do
+        erasedGs <- gets $ eraseBoxes [s1, s2]
+        let (dirs, _dbgGs) = runState (tryMove2Boxes [s1, s2] [t1, t2]) erasedGs
+        -- viewState . message .= (dbgGs ^. viewState . message)
+        -- viewState . doClearScreen .= True
+        return dirs
+      _ -> return []
+  diffs' <- sequenceA <$> mapM doMove dirs
+  case diffs' of
+    Nothing -> return ()
+    Just [] -> return ()
+    Just diffs -> do
+      ls <- use levelState
+      let uidx = ls ^. undoIndex
+      levelState . undoStack .= UndoItem diffs : drop uidx (ls ^. undoStack)
+      levelState . undoIndex .= 0
+      viewState . animateRequired .= True
+      viewState . animationMode .= AnimationDo
+  where
+    tryMove1Box :: MonadState GameState m => Point -> Point -> m [Direction]
+    tryMove1Box s t = do
+      srcs <- findBoxDirections s
+      gs <- get
+      let m = gs ^. levelState . height
+      let n = gs ^. levelState . width
+      paths <-
+        forM srcs $ \src ->
+          return $ runST $ do
+            let dst = PD t D []
+            hm <- HM.new
+            let ctx = SolverContext hm m n
+            pushSolver <- buildPushSolver ctx dst
+            path <- flip evalStateT gs $ aStarFind pushSolver src
+            return $ pushPathToDirections path
+      let nePaths = filter (not . null) paths
+      let selected =
+            if null nePaths
+              then []
+              else minimumBy (comparing length) nePaths
+      return selected
+    tryMove2Boxes :: MonadState GameState m => [Point] -> [Point] -> m [Direction]
+    tryMove2Boxes _ss _ts = return []
+
+```

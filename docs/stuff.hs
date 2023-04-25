@@ -1,4 +1,4 @@
-{-
+{--
 ~/h/sokoban-hs ❯❯❯ stack build --work-dir .stack-work-profile --profile
 ~/h/sokoban-hs ❯❯❯ stack --profile --work-dir .stack-work-profile run sokoban --rts-options -p
 
@@ -795,4 +795,4 @@ newtype App m a = App { runApp :: WriterT [Message] (StateT GameState m) a}
 #  - patch-0.0.3.1
 #  - ref-tf-0.4.0.2
 #  - witherable-0.3.1
--}
+--}

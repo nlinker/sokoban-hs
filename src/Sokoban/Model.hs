@@ -54,14 +54,14 @@ import Control.Monad.State.Strict
   )
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Data.Foldable (foldl', minimumBy)
-import qualified Data.HashMap.Mutable.Basic as HM
-import qualified Data.HashSet as S
+import Data.HashMap.Mutable.Basic qualified as HM
+import Data.HashSet qualified as S
 import Data.Maybe (catMaybes)
 import Data.Ord (comparing)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Vector (Vector, (!))
-import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
+import Data.Vector qualified as V
+import Data.Vector.Unboxed qualified as VU
 import Debug (getDebugModeM, setDebugModeM)
 import Sokoban.Level
   ( Cell (..),
@@ -82,15 +82,38 @@ import Sokoban.Level
     w8ToDirection,
     _PD,
   )
-import qualified Sokoban.Level as L (cells, height, id, width)
+import Sokoban.Level qualified as L (cells, height, id, width)
 import Sokoban.Solver (AStarSolver (..), aStarFind, breadFirstFind)
 import System.IO.Unsafe (unsafePerformIO)
-import qualified Text.Builder as TB
+import Text.Builder qualified as TB
 import Text.InterpolatedString.QM (qm, qms)
 import Prelude hiding (Left, Right, id)
-import qualified Prelude as P
+import Prelude qualified as P
 
 type MatrixCell = Vector (Vector Cell)
+
+data GameState = GameState
+  { _collection :: !LevelCollection,
+    _index :: !Int,
+    _levelState :: !LevelState,
+    _viewState :: !ViewState
+  }
+  deriving (Eq)
+
+data Action
+  = Move Direction
+  | Undo
+  | Redo
+  | Restart
+  | PrevLevel
+  | NextLevel
+  | SelectBox Point
+  | SelectWorker
+  | MoveBoxStart [Point] [Point]
+  | MoveBoxFinish [Direction]
+  | MoveWorker Point
+  | ToggleDebugMode
+  deriving (Eq, Show)
 
 data Diff = Diff
   { _direction :: !Direction,
@@ -139,31 +162,6 @@ data Stats = Stats
   { _moveCount :: !Int,
     _pushCount :: !Int
   }
-  deriving (Eq, Show)
-
-data GameState = GameState
-  { _collection :: !LevelCollection,
-    _index :: !Int,
-    _levelState :: !LevelState,
-    _viewState :: !ViewState
-  }
-  deriving (Eq)
-
-data Action
-  = Move Direction
-  | Undo
-  | Redo
-  | Restart
-  | PrevLevel
-  | NextLevel
-  | SelectBox Point
-  | SelectWorker
-  | MoveBoxesStart [Point] [Point]
-  | MoveBoxesFinish [Direction]
-  | MoveBoxesCancel
-  | MoveWorker Point
-  | Cancel
-  | ToggleDebugMode
   deriving (Eq, Show)
 
 data Command
@@ -226,13 +224,11 @@ runStep action = do
     PrevLevel -> switchLevel (negate 1)
     NextLevel -> switchLevel (0 + 1)
     MoveWorker dst -> moveWorkerToThePoint dst
-    MoveBoxesStart _ _ -> pure ()
-    MoveBoxesFinish dirs -> moveBoxesByWorkerFinish dirs
-    MoveBoxesCancel -> pure ()
+    MoveBoxStart src dst -> moveBoxesByWorkerCalc src dst
+    MoveBoxFinish dirs -> moveBoxesByWorkerFinish dirs
     SelectWorker -> computeWorkerReachability
     SelectBox box -> computeBoxReachability box
     ToggleDebugMode -> toggleDebugMode
-    Cancel -> pure ()
   resetView action
 
 resetView :: (MonadState GameState m) => Action -> m ()
@@ -479,7 +475,7 @@ computeBoxReachability box = do
       let commonArea = (^. (_PD . _1)) <$> concat (filter (not . null) areas)
       return $ S.fromList commonArea
 
-moveBoxesByWorkerCalc :: (MonadState GameState m) => [Point] -> [Point] -> m [Direction]
+moveBoxesByWorkerCalc :: (MonadState GameState m) => [Point] -> [Point] -> m ()
 moveBoxesByWorkerCalc src dst =
   case (src, dst) of
     ([s], [t]) -> do
@@ -488,8 +484,8 @@ moveBoxesByWorkerCalc src dst =
       let (dirs, _dbgGs) = runState (tryMove1Box s t) erasedGs
       -- viewState . message .= (dbgGs ^. viewState . message)
       -- viewState . doClearScreen .= True
-      return dirs
-    _ -> return []
+      pure ()
+    _ -> pure ()
 
 moveBoxesByWorkerFinish :: (MonadState GameState m) => [Direction] -> m ()
 moveBoxesByWorkerFinish dirs = do

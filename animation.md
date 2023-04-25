@@ -35,4 +35,23 @@ Since I care about the performance and good abrtractions, I choose this, impure 
 
 ## Animation implementation details
 
-TODO
+The cancellable animations is harder, so let's start with non-cancellable ones.
+
+### Non-cancellable animations
+
+```haskell
+data Action
+  = Move Direction
+  | Undo
+  | Redo
+  | Restart
+  | PrevLevel
+  | NextLevel
+  | SelectWorker    -- computeWorkerReachability
+  | SelectBox Point -- computeBoxReachability box
+  | MoveWorker Point -- moveWorkerToThePoint dst
+  | MoveBox Point Point -- moveBoxByWorker src dst
+  | ToggleDebugMode
+  deriving (Eq, Show)
+```
+The longest operation here is `moveBoxByWorker src dst`, the animation

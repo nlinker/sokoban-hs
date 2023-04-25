@@ -48,7 +48,7 @@ import Sokoban.Level
     isBox,
     isEmptyOrGoal,
     isWorker,
-    levels,
+    levels, _PD,
   )
 import Sokoban.Model
   ( AnimationMode (..),
@@ -134,7 +134,7 @@ run = do
       atomically $ writeTVar tvar (Just tid)
       K.keyLoop chan (Just . MsgKey)
     destroyAll tvar = do
-      Just tid <- atomically $ readTVar tvar
+      Just tid <- readTVarIO tvar
       killThread tid
       destroyScreen
     setupScreen = do
@@ -190,20 +190,19 @@ buildGameState args = do
             }
       }
 
-convertKeyToAction :: K.Key -> A.Action
+convertKeyToAction :: K.Key -> Maybe A.Action
 convertKeyToAction k = case k of
-  K.Arrow dir -> A.Move dir
-  K.PageUp -> A.PrevLevel
-  K.PageDown -> A.NextLevel
-  K.Letter '[' -> A.PrevLevel
-  K.Letter ']' -> A.NextLevel
-  K.Letter 'u' -> A.Undo
-  K.Letter 'i' -> A.Redo
-  K.Letter 'r' -> A.Restart
-  K.Letter 'd' -> A.ToggleDebugMode
-  K.Escape -> A.Cancel
-  K.MouseClick _ -> A.Cancel
-  K.Letter _ -> A.Cancel
+  K.Arrow dir -> Just $ A.Move dir
+  K.PageUp -> Just A.PrevLevel
+  K.PageDown -> Just A.NextLevel
+  K.Letter '[' -> Just A.PrevLevel
+  K.Letter ']' -> Just A.NextLevel
+  K.Letter 'u' -> Just A.Undo
+  K.Letter 'i' -> Just A.Redo
+  K.Letter 'r' -> Just A.Restart
+  K.Letter 'd' -> Just A.ToggleDebugMode
+  _            -> Nothing
+
 
 gameLoop :: TChan Message -> GameState -> IO ()
 gameLoop chan gs0 = do
@@ -215,7 +214,7 @@ gameLoop chan gs0 = do
     case msg of
       MsgKey (K.MouseClick click) ->
         case interpretClick gs0 click of
-          (Just _action@(A.MoveBoxesStart _src _dst), gs) ->
+          (Just _action@(A.MoveBoxStart _src _dst), gs) ->
             --            forM_ (gs0 ^. viewState . threadIds) killThread -- avoid leaking threads
             --            tid1 <- forkIO $ progressLoop chan
             --            tid2 <- forkIO $ calculate chan gs
@@ -227,13 +226,9 @@ gameLoop chan gs0 = do
       MsgKey K.Escape ->
         --      forM_ (gs0 ^. viewState . threadIds) killThread
         return gs0
-      MsgKey key -> return $ step gs0 (convertKeyToAction key)
-      --      CmdFinish dirs -> do
-      --        forM_ (gs0 ^. viewState . threadIds) killThread
-      --        return gs0
-      --      CmdAction action -> return $ step gs0 action
-      --      CmdTick -> return $ gs0 & viewState . progress %~ (<> ".")
-      -- perform animation if needed
+      MsgKey key -> case convertKeyToAction key of
+        Just action -> return $ step gs0 action
+        Nothing -> return gs0
       MsgTick ->
         return gs0
   gs2 <-
@@ -341,7 +336,7 @@ interpretClick gs click = runState runInterpretClick gs
                       return $ Just $ A.MoveWorker p1
                   | isBox c0 && isDestination c1 -> do
                       viewState . clicks .= []
-                      return $ Just $ A.MoveBoxesStart [p0] [p1]
+                      return $ Just $ A.MoveBoxStart [p0] [p1]
                   | isBox c0 && isBox c1 -> do
                       viewState . clicks .= [p1, p0]
                       return $ Just $ A.SelectBox p1
@@ -459,12 +454,12 @@ runTestPerf = do
   let gs1 = step gs0 (A.SelectBox (Point 11 2))
   let gs2 = step gs1 (A.SelectBox (Point 11 2))
   let gs3 = step gs2 (A.SelectBox (Point 11 2))
-  let gs4 = step gs3 (A.MoveBoxesStart [Point 11 2] [Point 5 1])
+  let gs4 = step gs3 (A.MoveBoxStart [Point 11 2] [Point 5 1])
   let gs5 = step gs4 (A.SelectBox (Point 7 3))
   let gs6 = step gs5 (A.SelectBox (Point 7 3))
   let gs7 = step gs6 (A.SelectBox (Point 7 3))
   let gs8 = step gs7 (A.SelectBox (Point 7 3))
-  let gs9 = step gs8 (A.MoveBoxesStart [Point 7 3] [Point 5 2])
+  let gs9 = step gs8 (A.MoveBoxStart [Point 7 3] [Point 5 2])
   render gs9
 
 sources :: [(Direction, Integer)]
